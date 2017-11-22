@@ -119,7 +119,7 @@ class Asteroid(object):
 
         ok = np.abs(z)<f_lag_lim
         ok = np.isclose(gaussian_filter1d(ok.astype(float),0.5),1,1E-6)
-        lag = np.interp(self.lag,self.time-self.time[0],np.arange(len(time)))
+        lag = np.interp(self.lag,self.time-self.time[0],np.arange(len(self.time)))
         ok = np.interp(x+lag,x,ok).astype(bool)
         self.time = self.time[x[ok]]
         self.f = y[ok]
