@@ -33,6 +33,7 @@ import numpy as np
 from astropy.time import Time
 import dask.dataframe as dd
 import dask.array as da
+from astropy.modeling import models, fitting
 from photutils import CircularAperture, aperture_photometry
 
 class Asteroid(object):
@@ -102,30 +103,95 @@ class Asteroid(object):
             self.channel = int(channels[0])
 
 
-    def lightcurve(self, channel = 1, cadence = None, r=5, difference=True,plot=False,tol=30*u.arcsec,f_lag_lim=50):
-        self.channelObj = Channel(self.campaign,channel,self.dir)
+    def lightcurve(self, channel = 1, cadence = None, r=5, difference=True,plot=False,tol=30*u.arcsec, val_lim=None):
+        if not hasattr(self,'channelObj'):
+            self.channelObj = Channel(self.campaign,channel,self.dir)
+        if hasattr(self,'channelObj') & (self.channelObj.channel!=channel):
+            self.channelObj = Channel(self.campaign,channel,self.dir)
 
-        print('Finding asteroid')
-        self.channelObj.query_hdf5(self.ra,self.dec,tol)
         if cadence is None:
             cadence = np.arange(self.channelObj.ncad)
-        track = self.channelObj.track(cadence)
-        f = np.copy(self.channelObj.lightcurve(track,cadence=cadence,r=r,difference=difference,plot=plot))
+
+        if not self.channelObj.good:
+            self.t = None
+            self.f = None
+            self.f_lag = None
+            return self.t, self.f
+
+
         print('Finding background (lagged {} days)'.format(self.lag))
-        self.channelObj.query_hdf5(self.ra_lag,self.dec_lag,tol)
+        self.channelObj.query_hdf5(self.ra_lag,self.dec_lag,tol,construct_model=False)
+        if not hasattr(self.channelObj,'ar'):
+            self.t = None
+            self.f = None
+            self.f_lag = None
+            return
+        vals = np.asarray([len(np.where(np.isfinite(i.ravel()))[0]) for i in self.channelObj.ar.values()])
+        vals = len(np.where(vals!=0)[0])
+        if val_lim != None:
+            if vals < val_lim:
+                print('Not enough TPFs on source.')
+                self.t = None
+                self.f = None
+                self.f_lag = None
+                return
+        print('{} TPFs on source'.format(vals))
+        self.channelObj.query_hdf5(self.ra_lag,self.dec_lag,tol,construct_model=True)
+        track = self.channelObj.track(cadence)
         f_lag = np.copy(self.channelObj.lightcurve(track,cadence=cadence,r=r,difference=difference))
+
+
+        print('Finding asteroid')
+        self.channelObj.query_hdf5(self.ra,self.dec,tol,construct_model=True)
+        if not hasattr(self.channelObj,'ar'):
+            self.t = None
+            self.f = None
+            self.f_lag = None
+            return
+        f = np.copy(self.channelObj.lightcurve(track,cadence=cadence,r=r,difference=difference,plot=plot))
+
+        h=np.histogram(f_lag,np.arange(-300,300,3))
+        g = models.Gaussian1D(amplitude=h[0].max(), mean=0, stddev=50)
+        fit_g = fitting.LevMarLSQFitter()
+        g = fit_g(g, np.arange(-300,300,3)[0:-1]-1.5,h[0])
+        f_lag_lim = np.max([50,3*g.stddev.value],axis=0)
+        self.f_lag_lim = 3*f_lag_lim
+
         ok = np.isfinite(f) & np.isfinite(f_lag) & (f!=0)
         x,y,z = cadence[ok], f[ok], f_lag[ok]
-
         ok = np.abs(z)<f_lag_lim
         ok = np.isclose(gaussian_filter1d(ok.astype(float),0.5),1,1E-6)
-        lag = np.interp(self.lag,self.time-self.time[0],np.arange(len(self.time)))
-        ok = np.interp(x+lag,x,ok).astype(bool)
-        self.t = self.time[x[ok]]
-        self.f = y[ok]
+        if not np.any(ok):
+            self.t = None
+            self.f = None
+            self.f_lag = None
+        else:
+            lag = np.interp(self.lag,self.time-self.time[0],np.arange(len(self.time)))
+            ok = np.interp(x+lag,x,ok).astype(bool)
+            self.ok = ok
+            self.t = self.time[x]
+            self.f = y
+            self.f_lag =z
+            self.cadence = x
+        return
 
-        return self.t, self.f
 
+    def movie(self, channel, dir = 'movies/', r=5):
+        if not hasattr(self,'channelObj'):
+            self.channelObj = Channel(self.campaign,channel,self.dir)
+
+        if not self.channelObj.good:
+            return
+
+        if not hasattr(self,'f'):
+            self.lightcurve(channel)
+
+        cad = np.arange(self.cadence[self.ok].min(),self.cadence[self.ok].max())
+        m = np.nanmedian(self.f[self.ok])/r**2
+        s = np.nanstd(self.f[self.ok])/r**2
+        print('Creating movie')
+        self.channelObj.movie(cadence=cad,scale='linear',vmin=m-5*s,vmax=m+5*s,outfile='{}{}.mp4'.format(dir,self.name))
+        return
 
 
 class Channel(object):
@@ -142,6 +208,7 @@ class Channel(object):
         fname=self.dir+'c{}/{}/0.h5'.format('{0:02}'.format(self.campaign),'{0:02}'.format(self.channel))
         if not os.path.isfile(fname):
             print('No such channel')
+            self.good = False
             return
 
         self.df = dd.read_hdf(fname,'table').reset_index(drop=True)
@@ -160,6 +227,7 @@ class Channel(object):
         self.campaign = campaign
         self.channel = channel
         self.dir = dir
+        self.good = True
         self.find_data()
         self.times = pd.read_csv(TIME_FILE)
         self.LC = 29.4295*u.min
@@ -201,7 +269,7 @@ class Channel(object):
         self.nearby = nearby
 
 
-    def query_hdf5(self, x=None, y=None, tol=None, difference=True):
+    def query_hdf5(self, x=None, y=None, tol=None, construct_model=True):
         '''Go to the database and grab the data at a given point'''
         if (x is None) or (y is None):
             print('Specify a location.')
@@ -223,21 +291,23 @@ class Channel(object):
             self.typ = 'pix'
             tol = self.pixtol
 
-        if not hasattr(self,'nearby'):
-            self.find_close()
+        if construct_model:
+            if not hasattr(self,'nearby'):
+                self.find_close()
 
         if hasattr(x,'__iter__'):
             #Run through all cadences
             if len(x)!=self.ncad:
                 print('Pass either single value or values for all cadences.')
                 return
-            if not hasattr(self,'nearby'):
-                self.find_close()
+
 
             xar,yar = np.asarray(self.df['Y'].astype(float).compute()), np.asarray(self.df['X'].astype(float).compute())
             if self.typ == 'deg':
-                xar,yar = self.r.wcs_pix2world(xar,yar,1)
-
+                try:
+                    xar,yar = self.r.wcs_pix2world(xar,yar,1)
+                except:
+                    return
 
             x1 = xar > np.min(x) - tol*2
             x2 = xar <= np.max(x) + tol*2
@@ -247,14 +317,17 @@ class Channel(object):
 
             xar,yar = df[:,3], df[:,2]
             if self.typ == 'deg':
-                xar,yar = self.r.wcs_pix2world(xar,yar,1)
-
+                try:
+                    xar,yar = self.r.wcs_pix2world(xar,yar,1)
+                except:
+                    return
             df = df[:,4:]
             ar = {}
-            mod = {}
+            if construct_model:
+                mod = {}
             x_store = {}
             y_store = {}
-            for i, j, n, k in tqdm(zip(x, y, self.nearby.values(), range(len(x))),leave=True):
+            for i, j, k in tqdm(zip(x, y, range(len(x))),leave=True):
                 with silence():
                     x1 = xar > i - tol
                     x2 = xar <= i + tol
@@ -265,13 +338,14 @@ class Channel(object):
                     ar[k] = d[:,k]
                     x_store[k] = np.asarray(xar[ok])
                     y_store[k] = np.asarray(yar[ok])
-
-                    if len(n)>3:
-                        mod[k] = np.asarray(np.nanmedian(d[:,n],axis=1))
-                    else:
-                        mod[k]=None
+                    if construct_model:
+                        if len(self.nearby[k])>3:
+                            mod[k] = np.asarray(np.nanmedian(d[:,self.nearby[k]],axis=1))
+                        else:
+                            mod[k]=None
             self.ar = ar
-            self.mod = mod
+            if construct_model:
+                self.mod = mod
             self.x = x_store
             self.y = y_store
             self.x_mid = x
@@ -280,8 +354,10 @@ class Channel(object):
         else:
             xar,yar = np.asarray(self.df['Y'].astype(float).compute()), np.asarray(self.df['X'].astype(float).compute())
             if self.typ == 'deg':
-                xar,yar = self.r.wcs_pix2world(xar,yar,1)
-
+                try:
+                    xar,yar = self.r.wcs_pix2world(xar,yar,1)
+                except:
+                    return
             #Produce single cadence value
             x1 = xar > x - tol
             x2 = xar <= x + tol
@@ -296,18 +372,20 @@ class Channel(object):
             mod = {}
             x_store = {}
             y_store = {}
-            for n,k in tqdm(zip(self.nearby.values(), range(np.shape(d)[1])),leave=True):
+            for k in tqdm(range(np.shape(d)[1]),leave=True):
                 with silence():
                     ar[k] = d[:,k]
                     x_store[k] = np.asarray(xar)
                     y_store[k] = np.asarray(yar)
-                    if len(n)>3:
-                        mod[k] = np.asarray(np.nanmedian(d[:,n],axis=1))
-                    else:
-                        mod[k]=None
+                    if construct_model:
+                        if len(self.nearby[k])>3:
+                            mod[k] = np.asarray(np.nanmedian(d[:,self.nearby[k]],axis=1))
+                        else:
+                            mod[k]=None
 
             self.ar = ar
-            self.mod = mod
+            if construct_model:
+                self.mod = mod
             self.x = x_store
             self.y = y_store
             self.x_mid = np.zeros(np.shape(d)[1])+x
@@ -367,6 +445,9 @@ class Channel(object):
 
     def track(self, cadence=None,fwhm=2.0, threshold=10, difference=True):
         '''Find where the source is in each stamp'''
+        if (difference is True) & (not hasattr(self,'mod')):
+            print('Can not run difference. No model constructed. Switching.')
+            difference = False
         if (cadence is None):
             cadence = np.arange(self.ncad)
         xm, ym = np.zeros(len(cadence))*np.nan,np.zeros(len(cadence))*np.nan
@@ -391,6 +472,10 @@ class Channel(object):
 
     def lightcurve(self, track = None, cadence = None, r = 5, fwhm=2.0, threshold=10, difference=True, plot=False):
         '''Generate a light curve'''
+        if (difference is True) & (not hasattr(self,'mod')):
+            print('Can not run difference. No model constructed. Switching.')
+            difference = False
+
         if (cadence is None):
             cadence = np.arange(self.ncad)
         if track is None:
@@ -423,7 +508,7 @@ class Channel(object):
         return f
 
 
-    def movie(self, plottype = 'data', outfile = 'out.mp4', cadence = None, cmap = 'viridis', colorbar=True, scale='log', vmin=None, vmax=None, text=True, title=None, frame_interval=30):
+    def movie(self, plottype = 'data', outfile = 'out.mp4', cadence = None, cmap = 'inferno', colorbar=True, scale='linear', vmin=None, vmax=None, text=True, title=None, frame_interval=30):
         '''Create a movie of whatever array is currently live'''
         data = self.ar
 
@@ -431,15 +516,21 @@ class Channel(object):
             data = self.ar
 
         if plottype == 'model':
-            data = self.mod
+            if (not hasattr(self,'mod')):
+                print('Can not run model. No model constructed. Switching.')
+            else:
+                data = self.mod
 
         if plottype == 'diff':
-            data = np.copy(self.ar)
-            for k in data.keys():
-                data[k]-=self.mod[k]
+            if (not hasattr(self,'mod')):
+                print('Can not run difference. No model constructed. Switching.')
+            else:
+                data = np.copy(self.ar)
+                for k in data.keys():
+                    data[k]-=self.mod[k]
 
         if plottype == 'baddiff':
-            print("HELP ME")
+            print("HELP ME!?")
             return
             data = self.ar-np.atleast_2d(np.nanmedian(self.ar,axis=1)).T
 
@@ -458,9 +549,11 @@ class Channel(object):
         if vmin is None:
             vmin,vmax = self.calc_color(data,scale)
 
+
         cm = plt.get_cmap(cmap)
-        cm.set_bad(cm(vmin),1)
+        cm.set_bad('black',1)
         im=ax.imshow(self.reconstruct(data,cadence[0],scale),cmap=cm,vmin=vmin,vmax=vmax,origin='bottom',interpolation='none')
+
         if colorbar==True:
             cbar=fig.colorbar(im,ax=ax)
             cbar.ax.tick_params(labelsize=10)
