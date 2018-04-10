@@ -1,9 +1,6 @@
 "Makes light curves of moving objects in K2 data"
 PACKAGEDIR = '/Users/ch/K2/projects/asteriks/python/' #For now
-import os
-from contextlib import contextmanager
-import warnings
-import sys
+
 import logging
 import numpy as np
 import pandas as pd
@@ -21,45 +18,53 @@ import fitsio
 
 from lightkurve import KeplerTargetPixelFile
 
+from . import utils
+
 campaign_stra = np.asarray(['1', '2', '3','4', '5', '6', '7' ,'8', '91', '92',
                             '101', '102', '111', '112', '12', '13', '14', '15',
                             '16', '17', '18'])
 campaign_strb = np.asarray(['01', '02', '03','04', '05', '06', '07' ,'08', '91',
                             '92', '101', '102', '111', '112', '12', '13', '14',
                             '15', '16', '17', '18'])
+
 WCS_DIR = os.path.join(PACKAGEDIR, 'data', 'wcs/')
 
-@contextmanager
-def silence():
-    '''Suppreses all output'''
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        with open(os.devnull, "w") as devnull:
-            old_stdout = sys.stdout
-            sys.stdout = devnull
-            try:
-                yield
-            finally:
-                sys.stdout = old_stdout
 
-def chunk(a, n):
-    k, m = divmod(len(a), n)
-    return (a[i * k + min(i, m):(i + 1) * k + min(i + 1, m)] for i in range(n))
+def verify_lag():
+    pass
 
-def check_cache(cache_lim=2):
-    cache_size=get_dir_size(get_cache_dir())/1E9
-    if cache_size>=cache_lim:
-        logging.warning('Cache hit limit of {} gb. Clearing.'.format(cachelim))
-        clear_download_cache()
+def get_radec(name, campaign=None, lag=[0]):
+    '''Finds RA and Dec of moving object using K2 ephem.
 
-def get_radec(name, campaign=None, lag=0):
-    '''Finds RA and Dec of object using K2 ephem
+    When lag is specified, will interpolate the RA and Dec and find the solution
+    the specified number of days ahead or behind the object.
+
+    e.g. A lag of 0.25 will find the position of the point a quarter of a day ahead
+    of the moving object. A lag of -0.25 will find the position of the point a
+    quarter of a day behind the moving object.
+
+    This is used to create a moving aperture before and behind the target aperture.
+
+    Parameters
+    ----------
+    name : str
+        Name of object, resolved by JPL small bodies
+    campaign : int or None
+        Campaign number in K2. If None, campaigns will be stepped through until
+        a campaign containing the object is reached.
+    lag : list of floats
+        List of lags at which to return the dataframe. Must specify at least one.
+
+    Returns
+    -------
+    dfs : list of pandas.DataFrame
+        List of dataframes containing Julian Date, RA, Dec, Campaign, and channel.
     '''
+
     if campaign is None:
         campaigns = []
-#        with silence():
         for c in tqdm(np.arange(1,18)):
-            with silence():
+            with utils.silence():
                 df = K2ephem.get_ephemeris_dataframe(name, c, c, step_size=1./(8))
             k = K2fov.getKeplerFov(c)
             onsil = np.zeros(len(df), dtype=bool)
@@ -76,7 +81,7 @@ def get_radec(name, campaign=None, lag=0):
             logging.exception('{} never on Silicon'.format(name))
         campaign = campaigns[0]
     else:
-        with silence():
+        with utils.silence():
             df = K2ephem.get_ephemeris_dataframe(name, campaign, campaign, step_size=1./(8))
             k = K2fov.getKeplerFov(campaign)
             onsil = np.zeros(len(df), dtype=bool)
@@ -86,16 +91,22 @@ def get_radec(name, campaign=None, lag=0):
                 except:
                     continue
             df = df[onsil]
+
     x = np.asarray([k.getChannelColRow(r, d) for r, d in zip(df.ra, df.dec)])
     df['channel'] = x[:,0]
     times = [t[0:23] for t in np.asarray(df.index, dtype=str)]
     df['jd'] = Time(times,format='isot').jd
     df['campaign'] = campaign
     df = df[['jd', 'ra', 'dec', 'campaign', 'channel']]
-    ra, dec = np.interp(df.jd + lag, df.jd, df.ra) * u.deg, np.interp(df.jd + lag, df.jd, df.dec) * u.deg
-    df['ra'] = ra
-    df['dec'] = dec
-    return df
+
+    dfs = []
+    for l in lag:
+        df1 = df.copy()
+        ra, dec = np.interp(df1.jd + lag, df1.jd, df1.ra) * u.deg, np.interp(df1.jd + lag, df1.jd, df1.dec) * u.deg
+        df1['ra'] = ra
+        df1['dec'] = dec
+        dfs.append(df1)
+    return dfs
 
 def get_mast(obj, search_radius=1.):
     '''Queries mast for object.
@@ -163,7 +174,7 @@ def get_mast(obj, search_radius=1.):
     timetable = timetable[(timetable.jd > obj.jd.min()) & (timetable.jd < obj.jd.max())]
     for b in campaign_strb[c]:
         for ch in np.unique(m.channel):
-            wcs = pickle.load(open('{}/c{}_{}.p'.format(WCS_DIR, b, ch), 'rb'))
+            wcs = pickle.load(open('{}c{}_{:02}.p'.format(WCS_DIR, b, int(ch)), 'rb'))
             X, Y = wcs.wcs_world2pix([[r, d] for r, d in zip(timetable.RA, timetable.Dec)], 1).T
             timetable['Row_{}_{}'.format(b, ch)] = Y.astype(int)
             timetable['Column_{}_{}'.format(b, ch)] = X.astype(int)
@@ -211,20 +222,65 @@ def open_tpf(tpf_filename, quality_bitmask=(32768|65536)):
 
     return cadence, flux, error, y, x
 
-def make_lcs(name, campaign=None, search_radius=1, aperture_radius=5, lag=0.25):
-    '''Make light curves of moving objects at various aperture sizes
+def make_arrays(name, campaign=None, search_radius=1, aperture_radius=3,
+                lag=[0, 0.2, 0.4, 0.6, -0.2, -0.4 -0.6], xoffset=0, yoffset=0):
+    '''Make moving TPFs
     '''
-    x, y = np.meshgrid(np.arange(aperture_radius * 2 + 1) - aperture_radius,
-                       np.arange(aperture_radius * 2 + 1)- aperture_radius)
-    aper = ((x)**2 + (y)**2) < (n**2)
+
+    if not hasattr(lag, '__iter__'):
+        lag = [lag]
+
+    objs = [get_radec(name, campaign, lag = l) for l in lag]
+    timetables = []
+    for obj in objs:
+        mast, t = get_mast(obj)
+        timetables.append(t)
+    n = aperture_radius
+    x, y = np.meshgrid(np.arange(np.ceil(n).astype(int) * 2 + 1, dtype=float), np.arange(np.ceil(n).astype(int) * 2 + 1, dtype=float))
+    aper = ((x - n + 1 + xoffset)**2 + (y - n + 1 + yoffset)**2) < (n**2)
     x[~aper] = np.nan
     y[~aper] = np.nan
     xaper, yaper = np.asarray(x), np.asarray(y)
-    xaper, yaper = xaper[np.isfinite(xaper)], yaper[np.isfinite(yaper)]
+    xaper, yaper = np.asarray(xaper[np.isfinite(xaper)], dtype=int), np.asarray(yaper[np.isfinite(yaper)], dtype=int)
 
-    obj = get_radec(name=name, campaign=campaign)
-    mast, timetable = get_mast(obj, search_radius=search_radius)
-    for idx in range(mast.index.max()):
-        for u in mast.loc[idx,'url']:
-            open_tpf(u)
-            return
+    ar = np.zeros((len(timetables[0]), np.ceil(n).astype(int) * 2, np.ceil(n).astype(int) * 2, len(timetables))) * np.nan
+    er = np.zeros((len(timetables[0]), np.ceil(n).astype(int) * 2, np.ceil(n).astype(int) * 2, len(timetables))) * np.nan
+
+
+    mastcoord = SkyCoord(mast.RA, mast.Dec, unit=(u.deg, u.deg))
+    for file in tqdm(np.arange(len(mast))):
+        campaign = mast.campaign[file]
+        channel = mast.channel[file]
+        timetable = timetables[0]
+        tablecoord = SkyCoord(timetable.RA, timetable.Dec, unit=(u.deg, u.deg))
+        ok = mastcoord[file].separation(tablecoord) < 50 * 4*u.arcsec
+        tab = timetable[['cadenceno', 'order','Column_{}_{}'.format(campaign, channel),'Row_{}_{}'.format(campaign, channel)]][ok]
+        end, start = int(mast.endtime[file]), int(mast.starttime[file])
+        ok = []
+        for t in tab.iterrows():
+            ok.append((int(t[1][0]) > start) & (int(t[1][0]) < end))
+        ok = np.asarray(ok)
+        if not np.any(ok):
+            continue
+
+        url = mast.url[file]
+        cadence, flux, error, column, row = open_tpf(url)
+        pixel_coordinates = np.asarray(['{}, {}'.format(i, j) for i, j in zip(column.ravel(), row.ravel())])
+
+        for idx, timetable in enumerate(timetables):
+            tablecoord = SkyCoord(timetable.RA, timetable.Dec, unit=(u.deg, u.deg))
+            ok = mastcoord[file].separation(tablecoord) < 50 * 4*u.arcsec
+            tab = timetable[['cadenceno', 'order','Column_{}_{}'.format(campaign, channel),'Row_{}_{}'.format(campaign, channel)]][ok]
+            for t in tab.iterrows():
+                inaperture = np.asarray(['{}, {}'.format(int(i), int(j)) for i, j in zip(xaper - n + t[1][2], yaper - n  + t[1][3])])
+                mask_1 = np.asarray([i in pixel_coordinates for i in inaperture])
+                if not np.any(mask_1):
+                    continue
+                mask_2 = np.asarray([i in inaperture for i in pixel_coordinates])
+                c = np.where(cadence == int(t[1][0]))[0]
+                if len(c) == 0:
+                    continue
+                ar[int(t[1][1]), xaper[mask_1], yaper[mask_1], idx] = (flux[c[0]].ravel()[mask_2])
+                er[int(t[1][1]), xaper[mask_1], yaper[mask_1], idx] = (error[c[0]].ravel()[mask_2])
+
+    return ar, er
