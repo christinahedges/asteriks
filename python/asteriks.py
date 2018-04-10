@@ -1,17 +1,37 @@
+"Makes light curves of moving objects in K2 data"
+PACKAGEDIR = '/Users/ch/K2/projects/asteriks/python/' #For now
+import os
 from contextlib import contextmanager
 import warnings
 import sys
+import logging
+import numpy as np
 import pandas as pd
-import pickle
-import os
-import matplotlib.patheffects as path_effects
-import matplotlib.pyplot as plt
-from matplotlib import animation
-import astropy.units as u
+import K2ephem
+import K2fov
 from tqdm import tqdm
-from K2fov.K2onSilicon import onSiliconCheck,fields
+import pickle
+
+from astropy.coordinates import SkyCoord
+from astropy.time import Time
+from astropy.utils.data import download_file, clear_download_cache
+import astropy.units as u
+
+import fitsio
+
+from lightkurve import KeplerTargetPixelFile
+
+campaign_stra = np.asarray(['1', '2', '3','4', '5', '6', '7' ,'8', '91', '92',
+                            '101', '102', '111', '112', '12', '13', '14', '15',
+                            '16', '17', '18'])
+campaign_strb = np.asarray(['01', '02', '03','04', '05', '06', '07' ,'08', '91',
+                            '92', '101', '102', '111', '112', '12', '13', '14',
+                            '15', '16', '17', '18'])
+WCS_DIR = os.path.join(PACKAGEDIR, 'data', 'wcs/')
+
 @contextmanager
 def silence():
+    '''Suppreses all output'''
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with open(os.devnull, "w") as devnull:
@@ -21,570 +41,190 @@ def silence():
                 yield
             finally:
                 sys.stdout = old_stdout
-TIME_FILE = '/Users/ch/K2/projects/k2movie/k2movie/data/campaign_times.txt'
-WCS_DIR = '/Users/ch/K2/projects/asteroid/python/wcs/'
 
+def chunk(a, n):
+    k, m = divmod(len(a), n)
+    return (a[i * k + min(i, m):(i + 1) * k + min(i + 1, m)] for i in range(n))
 
-from scipy.ndimage.filters import gaussian_filter1d
+def check_cache(cache_lim=2):
+    cache_size=get_dir_size(get_cache_dir())/1E9
+    if cache_size>=cache_lim:
+        logging.warning('Cache hit limit of {} gb. Clearing.'.format(cachelim))
+        clear_download_cache()
 
-import astropy.units as u
-import K2ephem
-import numpy as np
-from astropy.time import Time
-import dask.dataframe as dd
-import dask.array as da
-from astropy.modeling import models, fitting
-from photutils import CircularAperture, aperture_photometry
-
-class Asteroid(object):
-    '''asteroid object'''
-
-    def __init__(self, name=None, campaign=None, channel=None, dir=None,lag=0.5):
-        self.name = name
-        self.campaign = campaign
-        self.channel = channel
-        self.dir = dir
-        self.lag = lag
-        self.times = pd.read_csv(TIME_FILE)
-        self.LC = 29.4295*u.min
-        campaign_str = 'c{}'.format(self.campaign)
-        self.start_time = np.asarray(self.times.StartTime[self.times.Campaign==campaign_str])[0]+2454833.
-        self.end_time = np.asarray(self.times.EndTime[self.times.Campaign==campaign_str])[0]+2454833.
-        self.start_cad = np.asarray(self.times.StartCad[self.times.Campaign==campaign_str])[0]
-        self.end_cad = np.asarray(self.times.EndCad[self.times.Campaign==campaign_str])[0]
-        self.ncad = (self.end_cad-self.start_cad)+1
-        self.time = (np.arange(self.ncad)*self.LC).to(u.day).value+self.start_time
-
-
-        if name is None:
-            print('Pass object name')
-            return
-        if self.campaign is None:
-            print('Pass a campaign number')
-            return
-        self.find_ephem()
-        self.find_silicon()
-
-        self.ra,self.dec = np.interp(self.time,self.ephem.jd,self.ephem.ra)*u.deg,np.interp(self.time,self.ephem.jd,self.ephem.dec)*u.deg
-        self.ra_lag,self.dec_lag = np.interp(self.time-lag,self.ephem.jd,self.ephem.ra)*u.deg,np.interp(self.time-lag,self.ephem.jd,self.ephem.dec)*u.deg
-
-    def find_ephem(self):
-        if self.name is None:
-            print('Specify an asteroid name.')
-        if self.campaign is None:
-            print('Specify a campaign')
-        with silence():
-            df = K2ephem.get_ephemeris_dataframe(self.name,self.campaign,self.campaign,step_size=1./(4))
-        times = [t[0:23] for t in np.asarray(df.index,dtype=str)]
-        df['jd'] = Time(times,format='isot').jd
-        df=df[['jd','ra','dec']]
-        self.ephem = df
-
-    def find_silicon(self):
-        if not hasattr(self,'ephem'):
-            self.find_ephem()
-        ra,dec=np.asarray(self.ephem[['ra','dec']]).T
-        k = fields.getKeplerFov(self.campaign)
-        onsil=np.asarray(list(map(onSiliconCheck,list(ra),list(dec),np.repeat(k,1))))[0]
-        if (onsil is False):
-            print('Never on silicon?')
-        else:
-            channels = np.zeros(len(ra))
-            for i,r,d in zip(range(len(ra)), ra, dec):
-                channels[i] = k.getChannelColRow(r,d)[0]
-
-            self.ephem['channels'] = channels.astype(int)
-        if hasattr(self,'channel'):
-            if (self.channel is None) is False:
-                return
-            else:
-                self.channel = int(channels[0])
-        else:
-            self.channel = int(channels[0])
-
-
-    def lightcurve(self, channel = 1, cadence = None, r=5, difference=True,plot=False,tol=30*u.arcsec, val_lim=None):
-        if not hasattr(self,'channelObj'):
-            self.channelObj = Channel(self.campaign,channel,self.dir)
-        if hasattr(self,'channelObj') & (self.channelObj.channel!=channel):
-            self.channelObj = Channel(self.campaign,channel,self.dir)
-
-        if cadence is None:
-            cadence = np.arange(self.channelObj.ncad)
-
-        if not self.channelObj.good:
-            self.t = None
-            self.f = None
-            self.f_lag = None
-            return self.t, self.f
-
-
-        print('Finding background (lagged {} days)'.format(self.lag))
-        self.channelObj.query_hdf5(self.ra_lag,self.dec_lag,tol,construct_model=False)
-        if not hasattr(self.channelObj,'ar'):
-            self.t = None
-            self.f = None
-            self.f_lag = None
-            return
-        vals = np.asarray([len(np.where(np.isfinite(i.ravel()))[0]) for i in self.channelObj.ar.values()])
-        vals = len(np.where(vals!=0)[0])
-        if val_lim != None:
-            if vals < val_lim:
-                print('Not enough TPFs on source.')
-                self.t = None
-                self.f = None
-                self.f_lag = None
-                return
-        print('{} TPFs on source'.format(vals))
-        self.channelObj.query_hdf5(self.ra_lag,self.dec_lag,tol,construct_model=True)
-        track = self.channelObj.track(cadence)
-        f_lag = np.copy(self.channelObj.lightcurve(track,cadence=cadence,r=r,difference=difference))
-
-
-        print('Finding asteroid')
-        self.channelObj.query_hdf5(self.ra,self.dec,tol,construct_model=True)
-        if not hasattr(self.channelObj,'ar'):
-            self.t = None
-            self.f = None
-            self.f_lag = None
-            return
-        f = np.copy(self.channelObj.lightcurve(track,cadence=cadence,r=r,difference=difference,plot=plot))
-
-        h=np.histogram(f_lag,np.arange(-300,300,3))
-        g = models.Gaussian1D(amplitude=h[0].max(), mean=0, stddev=50)
-        fit_g = fitting.LevMarLSQFitter()
-        g = fit_g(g, np.arange(-300,300,3)[0:-1]-1.5,h[0])
-        f_lag_lim = np.max([50,3*g.stddev.value],axis=0)
-        self.f_lag_lim = 3*f_lag_lim
-
-        ok = np.isfinite(f) & np.isfinite(f_lag) & (f!=0)
-        x,y,z = cadence[ok], f[ok], f_lag[ok]
-        ok = np.abs(z)<f_lag_lim
-        ok = np.isclose(gaussian_filter1d(ok.astype(float),0.5),1,1E-6)
-        if not np.any(ok):
-            self.t = None
-            self.f = None
-            self.f_lag = None
-        else:
-            lag = np.interp(self.lag,self.time-self.time[0],np.arange(len(self.time)))
-            ok = np.interp(x+lag,x,ok).astype(bool)
-            self.ok = ok
-            self.t = self.time[x]
-            self.f = y
-            self.f_lag =z
-            self.cadence = x
-        return
-
-
-    def movie(self, channel, dir = 'movies/', r=5):
-        if not hasattr(self,'channelObj'):
-            self.channelObj = Channel(self.campaign,channel,self.dir)
-
-        if not self.channelObj.good:
-            return
-
-        if not hasattr(self,'f'):
-            self.lightcurve(channel)
-
-        cad = np.arange(self.cadence[self.ok].min(),self.cadence[self.ok].max())
-        m = np.nanmedian(self.f[self.ok])/r**2
-        s = np.nanstd(self.f[self.ok])/r**2
-        print('Creating movie')
-        self.channelObj.movie(cadence=cad,scale='linear',vmin=m-5*s,vmax=m+5*s,outfile='{}{}.mp4'.format(dir,self.name))
-        return
-
-
-class Channel(object):
-    '''Channel object. Holds all the data for a given channel. '''
-
-    def find_data(self):
-        if (self.dir is None) or (os.path.isdir(self.dir) is False):
-            print('No data directory.')
-            return
-        if self.channel is None:
-            print('No channel specified.')
-            return
-
-        fname=self.dir+'c{}/{}/0.h5'.format('{0:02}'.format(self.campaign),'{0:02}'.format(self.channel))
-        if not os.path.isfile(fname):
-            print('No such channel')
-            self.good = False
-            return
-
-        self.df = dd.read_hdf(fname,'table').reset_index(drop=True)
-        self.cols = self.df.columns
-
-    def update_tol(self,tol):
-        if not hasattr(tol,'value'):
-            self.tol = tol*float((4.*u.arcsec).to(u.deg).value)
-            self.pixtol = int(tol)
-        else:
-            self.tol = float(tol.to(u.deg).value)
-            self.pixtol = int(tol.to(u.arcsecond).value/4)
-            #self.find_close()
-
-    def __init__(self, campaign=None, channel=None, dir=None, tol=5):
-        self.campaign = campaign
-        self.channel = channel
-        self.dir = dir
-        self.good = True
-        self.find_data()
-        self.times = pd.read_csv(TIME_FILE)
-        self.LC = 29.4295*u.min
-        campaign_str = 'c{}'.format(self.campaign)
-        self.start_time = np.asarray(self.times.StartTime[self.times.Campaign==campaign_str])[0]+2454833.
-        self.end_time = np.asarray(self.times.EndTime[self.times.Campaign==campaign_str])[0]+2454833.
-        self.start_cad = np.asarray(self.times.StartCad[self.times.Campaign==campaign_str])[0]
-        self.end_cad = np.asarray(self.times.EndCad[self.times.Campaign==campaign_str])[0]
-        self.ncad = (self.end_cad-self.start_cad)+1
-        self.time = (np.arange(self.ncad)*self.LC).to(u.day).value+self.start_time
-        self.update_tol(tol)
-        self.wcs_file = '{}{}'.format(WCS_DIR,'c{0:02}_'.format(self.campaign)+'{0:02}.p'.format(self.channel))
-        if not os.path.isfile(self.wcs_file):
-            print('No WCS found?')
-        self.r = pickle.load(open(self.wcs_file,'rb'))
-
-    def find_close(self, stol=0.04, ctol=5, npix=500):
-        print('Finding overlaps for difference imaging.')
-        '''Given a channel mosaic, find the cadences that are closest to overlapping with the given cadence. This makes the assumption that stars are on average, for the most part, constant.'''
-        m = self.df[list(self.df.columns[4:])].astype(float).mean(axis=1, skipna=True).compute()
-        #Ignore saturated stars
-        m[m>5e4]=0
-        self.top = list(np.argsort(m)[::-1][0:npix])
-        df = self.df[list(self.df.columns[4:])]
-        df_selected = df.map_partitions(lambda x: x[x.index.isin(self.top)])
-        z = np.asarray(df_selected.astype(float).compute())
-        z[z==0]=np.nan
-        z[~np.isfinite(z)]=np.nan
-        z /= np.atleast_2d(np.nanmedian(z,axis=1)).T
-        z = z[(np.nansum(np.isfinite(z),axis=1)>0.9*np.shape(z)[1])]
-        self.z = z
-        nearby = {}
-        for c in tqdm(np.arange(np.shape(z)[1])):
+def get_radec(name, campaign=None, lag=0):
+    '''Finds RA and Dec of object using K2 ephem
+    '''
+    if campaign is None:
+        campaigns = []
+#        with silence():
+        for c in tqdm(np.arange(1,18)):
             with silence():
-                ok = np.asarray(list(set(np.arange(np.shape(z)[1]))-set(np.arange(c-ctol,c+ctol))))
-                s = np.nanstd(z[:,ok]-np.transpose(np.atleast_2d(z[:,c])),axis=0)
-                sok = np.where(s < stol)[0]
-                nearby[c] = sok
-        self.nearby = nearby
-
-
-    def query_hdf5(self, x=None, y=None, tol=None, construct_model=True):
-        '''Go to the database and grab the data at a given point'''
-        if (x is None) or (y is None):
-            print('Specify a location.')
-            return None
-        if hasattr(self,'df') is False:
-            print('No data.')
-            return None
-        if (tol is None) is False:
-            self.update_tol(tol)
-
-        typ = 'pixel'
-        #Check for RA and Dec
-        if hasattr(x,'value'):
-            x = x.value
-            y = y.value
-            self.typ = 'deg'
-            tol = self.tol
-        else:
-            self.typ = 'pix'
-            tol = self.pixtol
-
-        if construct_model:
-            if not hasattr(self,'nearby'):
-                self.find_close()
-
-        if hasattr(x,'__iter__'):
-            #Run through all cadences
-            if len(x)!=self.ncad:
-                print('Pass either single value or values for all cadences.')
-                return
-
-
-            xar,yar = np.asarray(self.df['Y'].astype(float).compute()), np.asarray(self.df['X'].astype(float).compute())
-            if self.typ == 'deg':
+                df = K2ephem.get_ephemeris_dataframe(name, c, c, step_size=1./(8))
+            k = K2fov.getKeplerFov(c)
+            onsil = np.zeros(len(df), dtype=bool)
+            for i, r, d in zip(range(len(df)), list(df.ra), list(df.dec)):
                 try:
-                    xar,yar = self.r.wcs_pix2world(xar,yar,1)
+                    onsil[i] = k.isOnSilicon(r, d, 1)
                 except:
-                    return
-
-            x1 = xar > np.min(x) - tol*2
-            x2 = xar <= np.max(x) + tol*2
-            y1 = yar > np.min(y) - tol*2
-            y2 = yar <= np.max(y) + tol*2
-            df = np.asarray(self.df.astype(float).compute())[x1 & x2 & y1 & y2,:]
-
-            xar,yar = df[:,3], df[:,2]
-            if self.typ == 'deg':
+                    continue
+            if np.any(onsil):
+                campaigns.append(c)
+                df = df[onsil]
+                break
+        if len(campaigns) == 0:
+            logging.exception('{} never on Silicon'.format(name))
+        campaign = campaigns[0]
+    else:
+        with silence():
+            df = K2ephem.get_ephemeris_dataframe(name, campaign, campaign, step_size=1./(8))
+            k = K2fov.getKeplerFov(campaign)
+            onsil = np.zeros(len(df), dtype=bool)
+            for i, r, d in zip(range(len(df)), list(df.ra), list(df.dec)):
                 try:
-                    xar,yar = self.r.wcs_pix2world(xar,yar,1)
+                    onsil[i] = k.isOnSilicon(r, d, 1)
                 except:
-                    return
-            df = df[:,4:]
-            ar = {}
-            if construct_model:
-                mod = {}
-            x_store = {}
-            y_store = {}
-            for i, j, k in tqdm(zip(x, y, range(len(x))),leave=True):
-                with silence():
-                    x1 = xar > i - tol
-                    x2 = xar <= i + tol
-                    y1 = yar > j - tol
-                    y2 = yar <= j + tol
-                    ok = x1 & x2 & y1 & y2
-                    d = df[ok,:]
-                    ar[k] = d[:,k]
-                    x_store[k] = np.asarray(xar[ok])
-                    y_store[k] = np.asarray(yar[ok])
-                    if construct_model:
-                        if len(self.nearby[k])>3:
-                            mod[k] = np.asarray(np.nanmedian(d[:,self.nearby[k]],axis=1))
-                        else:
-                            mod[k]=None
-            self.ar = ar
-            if construct_model:
-                self.mod = mod
-            self.x = x_store
-            self.y = y_store
-            self.x_mid = x
-            self.y_mid = y
+                    continue
+            df = df[onsil]
+    x = np.asarray([k.getChannelColRow(r, d) for r, d in zip(df.ra, df.dec)])
+    df['channel'] = x[:,0]
+    times = [t[0:23] for t in np.asarray(df.index, dtype=str)]
+    df['jd'] = Time(times,format='isot').jd
+    df['campaign'] = campaign
+    df = df[['jd', 'ra', 'dec', 'campaign', 'channel']]
+    ra, dec = np.interp(df.jd + lag, df.jd, df.ra) * u.deg, np.interp(df.jd + lag, df.jd, df.dec) * u.deg
+    df['ra'] = ra
+    df['dec'] = dec
+    return df
 
-        else:
-            xar,yar = np.asarray(self.df['Y'].astype(float).compute()), np.asarray(self.df['X'].astype(float).compute())
-            if self.typ == 'deg':
-                try:
-                    xar,yar = self.r.wcs_pix2world(xar,yar,1)
-                except:
-                    return
-            #Produce single cadence value
-            x1 = xar > x - tol
-            x2 = xar <= x + tol
-            y1 = yar > y - tol
-            y2 = yar <= y + tol
-            d = np.asarray(self.df.astype(float).compute())[x1 & x2 & y1 & y2,:]
-            d = d[:,4:]
-            xar = xar[x1 & x2 & y1 & y2]
-            yar = yar[x1 & x2 & y1 & y2]
+def get_mast(obj, search_radius=1.):
+    '''Queries mast for object.
+    '''
+    ra, dec, channel = np.asarray(obj.ra), np.asarray(obj.dec), np.asarray(obj.channel)
+    ra_chunk = list(chunk(ra, int(np.ceil(len(ra)/200))))
+    dec_chunk = list(chunk(dec, int(np.ceil(len(ra)/200))))
+    channel_chunk = list(chunk(channel, int(np.ceil(len(ra)/200))))
 
-            ar = {}
-            mod = {}
-            x_store = {}
-            y_store = {}
-            for k in tqdm(range(np.shape(d)[1]),leave=True):
-                with silence():
-                    ar[k] = d[:,k]
-                    x_store[k] = np.asarray(xar)
-                    y_store[k] = np.asarray(yar)
-                    if construct_model:
-                        if len(self.nearby[k])>3:
-                            mod[k] = np.asarray(np.nanmedian(d[:,self.nearby[k]],axis=1))
-                        else:
-                            mod[k]=None
+    MAST_API = 'https://archive.stsci.edu/k2/data_search/search.php?'
+    extra = 'outputformat=CSV&action=Search'
+    columns = '&selectedColumnsCsv=sci_ra,sci_dec,ktc_k2_id,ktc_investigation_id,sci_channel'
+    mast = pd.DataFrame(columns=['RA','Dec','EPIC', 'channel'])
+    campaign = np.unique(obj.campaign)[0]
+    for r, d, ch in zip(ra_chunk, dec_chunk, channel_chunk):
+        query = 'RA={}&DEC={}&radius={}&sci_campaign={}&sci_channel={}&max_records=100&'.format(
+                        ",".join(list(np.asarray(r, dtype='str'))),
+                        ",".join(list(np.asarray(d, dtype='str'))),
+                        search_radius,
+                        campaign,
+                        ",".join(list(np.asarray(np.asarray(ch, dtype=int),
+                        dtype='str'))))
+        chunk_df = pd.read_csv(MAST_API + query + extra + columns,
+                               error_bad_lines=False,
+                               names=['RA','Dec','EPIC','Investigation ID', 'channel'])
+        chunk_df = chunk_df.dropna(subset=['EPIC']).reset_index(drop=True)
+        chunk_df = chunk_df.loc[chunk_df.RA != 'RA (J2000)']
+        chunk_df = chunk_df.loc[chunk_df.RA != 'ra']
+        mast = mast.append(chunk_df.drop_duplicates(['EPIC']).reset_index(drop=True))
+    mast = mast.drop_duplicates(['EPIC']).reset_index(drop='True')
 
-            self.ar = ar
-            if construct_model:
-                self.mod = mod
-            self.x = x_store
-            self.y = y_store
-            self.x_mid = np.zeros(np.shape(d)[1])+x
-            self.y_mid = np.zeros(np.shape(d)[1])+y
+    ids = np.asarray(mast.EPIC, dtype=str)
+    c = np.asarray(['{:02}'.format(campaign) in c for c in campaign_strb])
+    m = pd.DataFrame(columns = mast.columns)
+    times = []
+    cadences = []
+    for a, b in zip(campaign_stra[c], campaign_strb[c]):
+        m1 = mast.copy()
+        urls = ['http://archive.stsci.edu/missions/k2/target_pixel_files/c{}/'.format(a)+i[0:4] +
+                '00000/'+i[4:6]+'000/ktwo' + i +
+                '-c{}_lpd-targ.fits.gz'.format(b) for i in ids]
+        m1['url'] = urls
+        m1['campaign'] = b
+        with silence():
+            tpf_filename = download_file(urls[0], cache=True)
+        tpf = KeplerTargetPixelFile(tpf_filename, quality_bitmask=(32768|65536))
+        times.append(tpf.timeobj.jd)
+        cadences.append(tpf.hdu[1].data['CADENCENO'][tpf.quality_mask])
+        m1['starttime'] = tpf.hdu[1].data['CADENCENO'][tpf.quality_mask][0]
+        m1['endtime'] = tpf.hdu[1].data['CADENCENO'][tpf.quality_mask][-1]
+        m = m.append(m1)
+    coord = SkyCoord(m.RA, m.Dec, unit=(u.hourangle, u.deg))
+    m['RA'] = coord.ra.deg
+    m['Dec'] = coord.dec.deg
+    times = np.sort(np.unique(np.asarray([item
+                                           for sublist in times
+                                             for item in sublist])))
+    cadences = np.sort(np.unique(np.asarray([item
+                                                for sublist in cadences
+                                                    for item in sublist], dtype=int)))
+    RA = np.interp(times, obj.jd, obj.ra)
+    Dec = np.interp(times, obj.jd, obj.dec)
+    timetable = pd.DataFrame(np.asarray([RA, Dec, cadences, times]).T,
+                             columns=['RA', 'Dec', 'cadenceno', 'jd'])
+    timetable = timetable[(timetable.jd > obj.jd.min()) & (timetable.jd < obj.jd.max())]
+    for b in campaign_strb[c]:
+        for ch in np.unique(m.channel):
+            wcs = pickle.load(open('{}/c{}_{}.p'.format(WCS_DIR, b, ch), 'rb'))
+            X, Y = wcs.wcs_world2pix([[r, d] for r, d in zip(timetable.RA, timetable.Dec)], 1).T
+            timetable['Row_{}_{}'.format(b, ch)] = Y.astype(int)
+            timetable['Column_{}_{}'.format(b, ch)] = X.astype(int)
+    m = m.reset_index(drop=True)
+    timetable = timetable.reset_index(drop=True)
+    timetable['order'] = (timetable.cadenceno - timetable.cadenceno[0]).astype(int)
+    return m, timetable
 
-    def calc_color(self,data,scale='log'):
-        '''Calculate a '''
-        l = []
-        for i in data.values():
-            l.append(i)
-        l = np.asarray([item for sublist in l for item in sublist])
-        if scale=='log':
-            y = np.log10(l)
-        else:
-            y = l
-        y=y[np.isfinite(y)]
-        if len(y)==0:
-            print('No data')
-            return None,None
-        vmin=np.percentile(y,10)
-        vmax=np.percentile(y,90)
-        return vmin,vmax
+def open_tpf(tpf_filename, quality_bitmask=(32768|65536)):
+    '''Opens a TPF
 
-    def reconstruct(self,data,t,scale='linear'):
-        '''For a given time stamp, reconstruct a 2D image'''
-        if (not hasattr(self,'rec')):
-            if self.typ == 'deg':
-                self.rec = np.zeros((self.pixtol*4, self.pixtol*4))*np.nan
-            else:
-                self.rec = np.zeros((self.pixtol*2+2, self.pixtol*2+2))*np.nan
+    Parameters
+    ----------
+    tpf_filename : str
+        Name of the file to open. Can be a URL
+    quality_bitmask : bitmask
+        bitmask to apply to data
+    '''
+    if tpf_filename.startswith("http"):
+        try:
+            with silence():
+                tpf_filename = download_file(tpf_filename, cache=True)
+        except:
+            logging.warning('Can not find file {}'.format(tpf_filename))
+    tpf = fitsio.FITS(tpf_filename)
+    hdr_list = tpf[0].read_header_list()
+    hdr = {elem['name']:elem['value'] for elem in hdr_list}
+    keplerid = int(hdr['KEPLERID'])
+    try:
+        aperture = tpf[2].read()
+    except:
+        logging.warning('No aperture found for TPF {}'.format(tpf_filename))
+    aperture_shape = aperture.shape
+    # Get the pixel coordinates of the corner of the aperture
+    hdr_list = tpf[1].read_header_list()
+    hdr = {elem['name']:elem['value'] for elem in hdr_list}
+    col, row = int(hdr['1CRV5P']), int(hdr['2CRV5P'])
+    height, width = aperture_shape[0], aperture_shape[1]
+    y, x = np.meshgrid(np.arange(col, col + width), np.arange(row, row + height))
+    qmask = tpf[1].read()['QUALITY'] & quality_bitmask == 0
+    flux = (tpf[1].read()['FLUX'])[qmask]
+    cadence = (tpf[1].read()['CADENCENO'])[qmask]
+    error = (tpf[1].read()['FLUX_ERR'])[qmask]
+    tpf.close()
 
-        def recon(t):
-            self.rec*=np.nan
-            if self.typ == 'deg':
-                try:
-                    xcorr,ycorr = self.r.wcs_world2pix(self.x_mid[t],self.y_mid[t],1)
-                    xvals,yvals = self.r.wcs_world2pix(self.x[t],self.y[t],1)
-                except:
-                    return self.rec
-                xvals += self.pixtol*2 - xcorr
-                yvals += self.pixtol*2 - ycorr
-            else:
-                xvals = (self.x[t]-self.x_mid[t]+self.pixtol)-1
-                yvals = (self.y[t]-self.y_mid[t]+self.pixtol)-1
-            if scale == 'log':
-                self.rec[np.floor(xvals).astype(int),np.floor(yvals).astype(int)] = np.log10(data[t])
-            else:
-                self.rec[np.floor(xvals).astype(int),np.floor(yvals).astype(int)] = data[t]
-            return self.rec
+    return cadence, flux, error, y, x
 
-        return recon(t)
+def make_lcs(name, campaign=None, search_radius=1, aperture_radius=5, lag=0.25):
+    '''Make light curves of moving objects at various aperture sizes
+    '''
+    x, y = np.meshgrid(np.arange(aperture_radius * 2 + 1) - aperture_radius,
+                       np.arange(aperture_radius * 2 + 1)- aperture_radius)
+    aper = ((x)**2 + (y)**2) < (n**2)
+    x[~aper] = np.nan
+    y[~aper] = np.nan
+    xaper, yaper = np.asarray(x), np.asarray(y)
+    xaper, yaper = xaper[np.isfinite(xaper)], yaper[np.isfinite(yaper)]
 
-    def clean(self):
-        if hasattr(self,'rec'):
-            delattr(self,'rec')
-
-
-    def track(self, cadence=None,fwhm=2.0, threshold=10, difference=True):
-        '''Find where the source is in each stamp'''
-        if (difference is True) & (not hasattr(self,'mod')):
-            print('Can not run difference. No model constructed. Switching.')
-            difference = False
-        if (cadence is None):
-            cadence = np.arange(self.ncad)
-        xm, ym = np.zeros(len(cadence))*np.nan,np.zeros(len(cadence))*np.nan
-        plotted = False
-        for i,c in enumerate(cadence):
-            if difference:
-                im = np.copy(self.reconstruct(self.ar,c))-np.copy(self.reconstruct(self.mod,c))
-            else:
-                im = np.copy(self.reconstruct(self.ar,c))
-            im[~np.isfinite(im)]=0
-            if np.nansum(im)==0:
-                continue
-            try:
-                xm[i],ym[i]=np.where(im==np.nanmax(im))
-                continue
-            except:
-                continue
-        loc = [np.nanmedian(xm),np.nanmedian(ym)]
-        self.clean()
-        return loc
-
-
-    def lightcurve(self, track = None, cadence = None, r = 5, fwhm=2.0, threshold=10, difference=True, plot=False):
-        '''Generate a light curve'''
-        if (difference is True) & (not hasattr(self,'mod')):
-            print('Can not run difference. No model constructed. Switching.')
-            difference = False
-
-        if (cadence is None):
-            cadence = np.arange(self.ncad)
-        if track is None:
-            track = self.track(cadence,difference=difference,fwhm=fwhm, threshold=threshold)
-
-        f = np.zeros(len(cadence))
-        if plot:
-            fig,ax=plt.subplots(1,5,figsize=(15,3),sharex=True,sharey=True)
-            stops = [cadence[0],cadence[len(cadence)//4],cadence[len(cadence)//2],cadence[3*len(cadence)//4],cadence[-1]]
-
-        for i,c in enumerate(cadence):
-            if difference:
-                im = np.copy(self.reconstruct(self.ar,c))-np.copy(self.reconstruct(self.mod,c))
-            else:
-                im = np.copy(self.reconstruct(self.ar,c))
-            im[~np.isfinite(im)]=0
-            if np.nansum(im)==0:
-                continue
-
-            apertures = CircularAperture(track, r=r)
-            f[i] = aperture_photometry(im,apertures)[0]['aperture_sum']
-            if plot:
-                if c in stops:
-                    s = np.where(stops == c)[0][0]
-                    ax[s].imshow(im,vmin=0,vmax=threshold)
-                    ax[s].set_xticks([])
-                    ax[s].set_yticks([])
-                    apertures.plot(ax=ax[s],color='C3')
-        self.clean()
-        return f
-
-
-    def movie(self, plottype = 'data', outfile = 'out.mp4', cadence = None, cmap = 'inferno', colorbar=True, scale='linear', vmin=None, vmax=None, text=True, title=None, frame_interval=30):
-        '''Create a movie of whatever array is currently live'''
-        data = self.ar
-
-        if plottype == 'data':
-            data = self.ar
-
-        if plottype == 'model':
-            if (not hasattr(self,'mod')):
-                print('Can not run model. No model constructed. Switching.')
-            else:
-                data = self.mod
-
-        if plottype == 'diff':
-            if (not hasattr(self,'mod')):
-                print('Can not run difference. No model constructed. Switching.')
-            else:
-                data = np.copy(self.ar)
-                for k in data.keys():
-                    data[k]-=self.mod[k]
-
-        if plottype == 'baddiff':
-            print("HELP ME!?")
+    obj = get_radec(name=name, campaign=campaign)
+    mast, timetable = get_mast(obj, search_radius=search_radius)
+    for idx in range(mast.index.max()):
+        for u in mast.loc[idx,'url']:
+            open_tpf(u)
             return
-            data = self.ar-np.atleast_2d(np.nanmedian(self.ar,axis=1)).T
-
-        if (cadence is None):
-            cadence = np.arange(self.ncad)
-
-        if hasattr(self,'ar') is False:
-            print('No array specified. Query the databse first.')
-            return None
-
-        fig=plt.figure(figsize=(4,4))
-        if colorbar==True:
-            fig=plt.figure(figsize=(5,4))
-        ax=fig.add_subplot(111)
-
-        if vmin is None:
-            vmin,vmax = self.calc_color(data,scale)
-
-
-        cm = plt.get_cmap(cmap)
-        cm.set_bad('black',1)
-        im=ax.imshow(self.reconstruct(data,cadence[0],scale),cmap=cm,vmin=vmin,vmax=vmax,origin='bottom',interpolation='none')
-
-        if colorbar==True:
-            cbar=fig.colorbar(im,ax=ax)
-            cbar.ax.tick_params(labelsize=10)
-            if scale=='log':
-                cbar.set_label('log10(e$^-$s$^-1$)',fontsize=10)
-            else:
-                cbar.set_label('e$^-$s$^-1$',fontsize=10)
-
-        if text:
-            if (title is None)==False:
-                text1=ax.text(0.1,0.9,title,fontsize=10,color='white',transform=ax.transAxes)
-                text1.set_path_effects([path_effects.Stroke(linewidth=2, foreground='black'),
-                                       path_effects.Normal()])
-            text2=ax.text(0.1,0.83,'Campaign {}'.format(self.campaign),fontsize=8,color='white',transform=ax.transAxes)
-            text2.set_path_effects([path_effects.Stroke(linewidth=2, foreground='black'),
-                                   path_effects.Normal()])
-            text4=ax.text(0.1,0.78,'Channel {}'.format(self.channel),fontsize=8,color='white',transform=ax.transAxes)
-            text4.set_path_effects([path_effects.Stroke(linewidth=2, foreground='black'),
-                                   path_effects.Normal()])
-            text3=ax.text(0.1,0.72,'Time (BJD): {}'.format(int(self.time[cadence[0]])),fontsize=8,color='white',transform=ax.transAxes)
-            text3.set_path_effects([path_effects.Stroke(linewidth=2, foreground='black'),
-                                   path_effects.Normal()])
-
-
-        def animate(i):
-            im.set_array(self.reconstruct(data,cadence[i],scale))
-            if text:
-                text3.set_text('{}'.format(int(self.time[cadence[i]])))
-                return im,text3,
-            return im,
-
-        anim = animation.FuncAnimation(fig,animate,frames=len(cadence), interval=frame_interval, blit=True)
-        anim.save(outfile, dpi=150)
-        self.clean()
