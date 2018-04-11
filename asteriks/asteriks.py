@@ -8,18 +8,21 @@ import K2ephem
 import K2fov
 from tqdm import tqdm
 import pickle
+import os
 
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
 from astropy.utils.data import download_file, clear_download_cache
 import astropy.units as u
 
+from scipy.interpolate import interp1d
+
 import fitsio
 
 from lightkurve import KeplerTargetPixelFile
 
-from . import utils
-
+from .utils import *
+from . import PACKAGEDIR
 campaign_stra = np.asarray(['1', '2', '3','4', '5', '6', '7' ,'8', '91', '92',
                             '101', '102', '111', '112', '12', '13', '14', '15',
                             '16', '17', '18'])
@@ -30,18 +33,13 @@ campaign_strb = np.asarray(['01', '02', '03','04', '05', '06', '07' ,'08', '91',
 WCS_DIR = os.path.join(PACKAGEDIR, 'data', 'wcs/')
 
 
-def verify_lag():
-    pass
 
-def get_radec(name, campaign=None, lag=[0]):
+def get_radec(name, campaign=None, nlagged=None, aperture_radius=3, plot=False,
+              img_dir='', cadence='long'):
     '''Finds RA and Dec of moving object using K2 ephem.
 
-    When lag is specified, will interpolate the RA and Dec and find the solution
-    the specified number of days ahead or behind the object.
-
-    e.g. A lag of 0.25 will find the position of the point a quarter of a day ahead
-    of the moving object. A lag of -0.25 will find the position of the point a
-    quarter of a day behind the moving object.
+    When nlagged is specified, will interpolate the RA and Dec and find the specified
+    number of lagged or leading apertures.
 
     This is used to create a moving aperture before and behind the target aperture.
 
@@ -52,19 +50,21 @@ def get_radec(name, campaign=None, lag=[0]):
     campaign : int or None
         Campaign number in K2. If None, campaigns will be stepped through until
         a campaign containing the object is reached.
-    lag : list of floats
-        List of lags at which to return the dataframe. Must specify at least one.
+    nlagged : int
+        Number of lagged apertures to create. Must be even.
+    aperture_radius: int
+        Maximum size of aperture. This is used to ensure lagged apertures never
+        overlap.
 
     Returns
     -------
     dfs : list of pandas.DataFrame
         List of dataframes containing Julian Date, RA, Dec, Campaign, and channel.
     '''
-
     if campaign is None:
         campaigns = []
-        for c in tqdm(np.arange(1,18)):
-            with utils.silence():
+        for c in tqdm(np.arange(1,18), desc='Checking campaigns'):
+            with silence():
                 df = K2ephem.get_ephemeris_dataframe(name, c, c, step_size=1./(8))
             k = K2fov.getKeplerFov(c)
             onsil = np.zeros(len(df), dtype=bool)
@@ -75,13 +75,16 @@ def get_radec(name, campaign=None, lag=[0]):
                     continue
             if np.any(onsil):
                 campaigns.append(c)
+                log.info('\n\tMoving object found in campaign {}'.format(c))
+                df['onsil'] = onsil
+                onsil[np.where(onsil == True)[0][0]:np.where(onsil == True)[0][-1]]= True
                 df = df[onsil]
                 break
         if len(campaigns) == 0:
-            logging.exception('{} never on Silicon'.format(name))
+            raise ValueError('{} never on Silicon'.format(name))
         campaign = campaigns[0]
     else:
-        with utils.silence():
+        with silence():
             df = K2ephem.get_ephemeris_dataframe(name, campaign, campaign, step_size=1./(8))
             k = K2fov.getKeplerFov(campaign)
             onsil = np.zeros(len(df), dtype=bool)
@@ -90,27 +93,87 @@ def get_radec(name, campaign=None, lag=[0]):
                     onsil[i] = k.isOnSilicon(r, d, 1)
                 except:
                     continue
+            if not np.any(onsil):
+                raise ValueError('{} never on Silicon in campaign {}'
+                                 ''.format(name, campaign))
+            df['onsil'] = onsil
+            onsil[np.where(onsil == True)[0][0]:np.where(onsil == True)[0][-1]]= True
             df = df[onsil]
-
     x = np.asarray([k.getChannelColRow(r, d) for r, d in zip(df.ra, df.dec)])
     df['channel'] = x[:,0]
     times = [t[0:23] for t in np.asarray(df.index, dtype=str)]
     df['jd'] = Time(times,format='isot').jd
     df['campaign'] = campaign
-    df = df[['jd', 'ra', 'dec', 'campaign', 'channel']]
+    df = df[['jd', 'ra', 'dec', 'campaign', 'channel', 'onsil']]
+    # Find the lagged apertures
+    if nlagged % 2 is 1:
+        log.warning('\n\tOdd value of nlagged set ({}). '
+                    'Setting to nearest even value. ({})'.format(nlagged, nlagged + 1))
+        nlagged+=1
+    if nlagged is None:
+        lag = [0]
+    else:
+        if cadence in ['long', 'lc']:
+            cadence_duration = (29.45 * u.minute).to(u.hour)/(1.*u.hour)
+        if cadence in ['short', 'sc']:
+            cadence_duration = (58 * u.second).to(u.hour)/(1.*u.hour)
 
+        #Find lagged apertures based on the maximum velocity of the asteroid
+        ok = df.onsil == True
+        dr = (np.asarray(df[ok].ra[1:]) - np.asarray(df[ok].ra[0:-1])) * u.deg
+        dd = (np.asarray(df[ok].dec[1:]) - np.asarray(df[ok].dec[0:-1])) * u.deg
+        dt = (np.asarray(df[ok].jd[1:]) - np.asarray(df[ok].jd[0:-1])) * u.day
+        dr, dd = dr[dt == 0.125*u.day], dd[dt == 0.125*u.day]
+        dt = 0.125*u.day
+        minvel = np.min(np.asarray(((dr**2 + dd**2)**0.5).to(u.arcsec).value/4)*u.pixel/dt.to(u.hour))
+        log.info('\n\tMinimum velocity of {} found'.format(np.round(minvel, 2)))
+        lagspacing = np.arange(-nlagged - 2, nlagged + 4, 2)
+        lagspacing = lagspacing[np.abs(lagspacing) != 2]
+        lagspacing = lagspacing[np.argsort(lagspacing**2)]
+        lag = (2 * aperture_radius * cadence_duration * u.pixel * lagspacing/minvel).to(u.day).value
+        log.info('\n\tLag found \n {} (days)'.format(np.atleast_2d(lag).T))
     dfs = []
     for l in lag:
         df1 = df.copy()
-        ra, dec = np.interp(df1.jd + lag, df1.jd, df1.ra) * u.deg, np.interp(df1.jd + lag, df1.jd, df1.dec) * u.deg
+        f = interp1d(df1.jd, df1.ra, fill_value='extrapolate')
+        ra = f(df1.jd + l) * u.deg
+        f = interp1d(df1.jd, df1.dec, fill_value='extrapolate')
+        dec = f(df1.jd + l) * u.deg
         df1['ra'] = ra
         df1['dec'] = dec
         dfs.append(df1)
+    if plot:
+        log.info('Creating an mp4 of apertures')
+        make_aperture_plot(dfs, name=name, campaign=campaign, lagspacing=lagspacing,
+                           aperture_radius=aperture_radius, dir=img_dir)
+        log.info('Saved mp4 to {}{}_aperture.mp4'.format(img_dir, name.replace(' ','')))
     return dfs
 
-def get_mast(obj, search_radius=1.):
-    '''Queries mast for object.
+def get_mast(obj, search_radius=4.):
+    '''Queries MAST for all files near a moving object.
+
+    Parameters
+    ----------
+    obj : list of pandas.DataFrame's
+        Result from `get_radec` function
+    search_radius : float
+        MAST API search radius in arcmin. Default is 4. Increase this to be more
+        robust if TPFs in the channel are larger than 50 pixels.
+
+    Returns
+    -------
+    mast : pandas.DataFrame
+        A dataframe with all the target pixel files near the object at any time.
+    timetable : list of pandas.DataFrames
+
+        IF there is a lookup table of times, we can move timetable into get_radec
+        and call it get timetable! Much less confusing.
+
+        Can find the start/end cadences from k2fov/pyke utils stuff.
+
+        Watch out for the short cadence/long cadence stuff.
     '''
+    
     ra, dec, channel = np.asarray(obj.ra), np.asarray(obj.dec), np.asarray(obj.channel)
     ra_chunk = list(chunk(ra, int(np.ceil(len(ra)/200))))
     dec_chunk = list(chunk(dec, int(np.ceil(len(ra)/200))))
@@ -198,7 +261,7 @@ def open_tpf(tpf_filename, quality_bitmask=(32768|65536)):
             with silence():
                 tpf_filename = download_file(tpf_filename, cache=True)
         except:
-            logging.warning('Can not find file {}'.format(tpf_filename))
+            log.warning('Can not find file {}'.format(tpf_filename))
     tpf = fitsio.FITS(tpf_filename)
     hdr_list = tpf[0].read_header_list()
     hdr = {elem['name']:elem['value'] for elem in hdr_list}
@@ -206,7 +269,7 @@ def open_tpf(tpf_filename, quality_bitmask=(32768|65536)):
     try:
         aperture = tpf[2].read()
     except:
-        logging.warning('No aperture found for TPF {}'.format(tpf_filename))
+        log.warning('No aperture found for TPF {}'.format(tpf_filename))
     aperture_shape = aperture.shape
     # Get the pixel coordinates of the corner of the aperture
     hdr_list = tpf[1].read_header_list()
