@@ -31,11 +31,10 @@ campaign_strb = np.asarray(['01', '02', '03','04', '05', '06', '07' ,'08', '91',
                             '15', '16', '17', '18'])
 
 WCS_DIR = os.path.join(PACKAGEDIR, 'data', 'wcs/')
-
-
+TIME_FILE = os.path.join(PACKAGEDIR, 'data', 'campaign_times.txt')
 
 def get_radec(name, campaign=None, nlagged=None, aperture_radius=3, plot=False,
-              img_dir='', cadence='long'):
+              img_dir=''):
     '''Finds RA and Dec of moving object using K2 ephem.
 
     When nlagged is specified, will interpolate the RA and Dec and find the specified
@@ -113,11 +112,6 @@ def get_radec(name, campaign=None, nlagged=None, aperture_radius=3, plot=False,
     if nlagged is None:
         lag = [0]
     else:
-        if cadence in ['long', 'lc']:
-            cadence_duration = (29.45 * u.minute).to(u.hour)/(1.*u.hour)
-        if cadence in ['short', 'sc']:
-            cadence_duration = (58 * u.second).to(u.hour)/(1.*u.hour)
-
         #Find lagged apertures based on the maximum velocity of the asteroid
         ok = df.onsil == True
         dr = (np.asarray(df[ok].ra[1:]) - np.asarray(df[ok].ra[0:-1])) * u.deg
@@ -130,7 +124,7 @@ def get_radec(name, campaign=None, nlagged=None, aperture_radius=3, plot=False,
         lagspacing = np.arange(-nlagged - 2, nlagged + 4, 2)
         lagspacing = lagspacing[np.abs(lagspacing) != 2]
         lagspacing = lagspacing[np.argsort(lagspacing**2)]
-        lag = (2 * aperture_radius * cadence_duration * u.pixel * lagspacing/minvel).to(u.day).value
+        lag = (aperture_radius * u.pixel * lagspacing/minvel).to(u.day).value
         log.info('\n\tLag found \n {} (days)'.format(np.atleast_2d(lag).T))
     dfs = []
     for l in lag:
@@ -169,11 +163,9 @@ def get_mast(obj, search_radius=4.):
         IF there is a lookup table of times, we can move timetable into get_radec
         and call it get timetable! Much less confusing.
 
-        Can find the start/end cadences from k2fov/pyke utils stuff.
+        BUT this is currently robust against SC data?
 
-        Watch out for the short cadence/long cadence stuff.
     '''
-    
     ra, dec, channel = np.asarray(obj.ra), np.asarray(obj.dec), np.asarray(obj.channel)
     ra_chunk = list(chunk(ra, int(np.ceil(len(ra)/200))))
     dec_chunk = list(chunk(dec, int(np.ceil(len(ra)/200))))

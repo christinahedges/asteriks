@@ -12,6 +12,12 @@ import astropy.units as u
 import matplotlib.pyplot as plt
 import logging
 import K2fov
+from astropy.time import Time
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+from . import PACKAGEDIR
+
 
 log = logging.getLogger('asteriks')
 loggingLevels = {'CRITICAL' : 50,
@@ -19,6 +25,7 @@ loggingLevels = {'CRITICAL' : 50,
                  'WARNING': 30,
                  'INFO': 20,
                  'DEBUG': 10}
+TIME_FILE = os.path.join(PACKAGEDIR, 'data', 'campaign_times.txt')
 
 def setLevel(level):
     '''Set the level of logging for asteriks.
@@ -143,3 +150,32 @@ def check_cache(cache_lim=2):
     if cache_size>=cache_lim:
         logging.warning('Cache hit limit of {} gb. Clearing.'.format(cachelim))
         clear_download_cache()
+
+
+def scrape_keplerk2GO():
+    url = 'https://keplerscience.arc.nasa.gov/k2-data-release-notes.html'
+    page = requests.get(url)
+    soup = BeautifulSoup(page.text, "lxml")
+    find = ['Time', 'Long Cadence Number:', 'Short Cadence Number:']
+    pairs = []
+    for idx, ul in enumerate(soup.find_all('ul')):
+        ok = []
+        for f in find:
+            for li in ul.findChildren('li'):
+                if (f in li.text):
+                    if f == 'Time':
+                        ok.append(li.text.split(f)[-1][2:-4])
+                    else:
+                        ok.append(int(li.text.split(f)[-1]))
+                    break
+        if len(ok) > 0:
+            pairs.append(ok)
+
+    campaigns = ['E','0','1','2','3','4','5','6','7','8','91','92','101','102','111','112','11','12','13','14','15','16','17','18','19','20']
+    cols = ['Campaign', 'StartTime', 'LCStartCadence', 'LCEndCadence', 'EndTime', 'SCStartCadence', 'SCEndCadence']
+    df = pd.DataFrame(columns=cols)
+    for idx, p1, p2 in zip(range(len(pairs)//2)[::-1], pairs[::2], pairs[1::2]):
+        p1[0] = (Time(p1[0].lstrip()).jd)
+        p2[0] = (Time(p2[0].lstrip()).jd)
+        df = df.append(pd.DataFrame(np.atleast_2d(np.append(campaigns[idx], np.append(np.asarray(p1), np.asarray(p1)))), columns=cols))
+    df.to_csv(TIME_FILE, index=False)
