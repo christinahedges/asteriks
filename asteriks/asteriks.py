@@ -22,6 +22,8 @@ import fitsio
 from lightkurve import KeplerTargetPixelFile
 
 from .utils import *
+from .plotting import *
+
 from . import PACKAGEDIR
 campaign_stra = np.asarray(['1', '2', '3','4', '5', '6', '7' ,'8', '91', '92',
                             '101', '102', '111', '112', '12', '13', '14', '15',
@@ -33,8 +35,12 @@ campaign_strb = np.asarray(['01', '02', '03','04', '05', '06', '07' ,'08', '91',
 WCS_DIR = os.path.join(PACKAGEDIR, 'data', 'wcs/')
 TIME_FILE = os.path.join(PACKAGEDIR, 'data', 'campaign_times.txt')
 
+# asteriks is ONLY designed to work with the following quality flag.
+# change it at your own risk.
+quality_bitmask=(32768|65536)
+
 def get_radec(name, campaign=None, nlagged=None, aperture_radius=3, plot=False,
-              img_dir=''):
+              img_dir='', cadence='long'):
     '''Finds RA and Dec of moving object using K2 ephem.
 
     When nlagged is specified, will interpolate the RA and Dec and find the specified
@@ -104,13 +110,23 @@ def get_radec(name, campaign=None, nlagged=None, aperture_radius=3, plot=False,
     df['jd'] = Time(times,format='isot').jd
     df['campaign'] = campaign
     df = df[['jd', 'ra', 'dec', 'campaign', 'channel', 'onsil']]
+    times = pd.read_csv(TIME_FILE)
+    times = times[times.Campaign == str(campaign)]
+    LC = 29.424384 * u.min
+    ncad = np.asarray(times['LCEndCadence'] - times['LCStartCadence'])[0] + 1
+    if cadence in ['short', 'lc']:
+        LC = 58.847035 * u.sec
+        ncad = np.asarray(times['SCEndCadence'] - times['SCStartCadence'])[0] + 1
+    time = np.linspace(np.asarray(times['StartTime']), np.asarray(times['EndTime']), ncad+1)[:-1]
+
+
     # Find the lagged apertures
+    if nlagged is None:
+        nlagged = 0
     if nlagged % 2 is 1:
         log.warning('\n\tOdd value of nlagged set ({}). '
                     'Setting to nearest even value. ({})'.format(nlagged, nlagged + 1))
         nlagged+=1
-    if nlagged is None:
-        lag = [0]
     else:
         #Find lagged apertures based on the maximum velocity of the asteroid
         ok = df.onsil == True
@@ -138,10 +154,10 @@ def get_radec(name, campaign=None, nlagged=None, aperture_radius=3, plot=False,
         dfs.append(df1)
     if plot:
         log.info('Creating an mp4 of apertures')
-        make_aperture_plot(dfs, name=name, campaign=campaign, lagspacing=lagspacing,
+        make_aperture_movie(dfs, name=name, campaign=campaign, lagspacing=lagspacing,
                            aperture_radius=aperture_radius, dir=img_dir)
         log.info('Saved mp4 to {}{}_aperture.mp4'.format(img_dir, name.replace(' ','')))
-    return dfs
+    return dfs, time
 
 def get_mast(obj, search_radius=4.):
     '''Queries MAST for all files near a moving object.
@@ -207,7 +223,7 @@ def get_mast(obj, search_radius=4.):
         m1['campaign'] = b
         with silence():
             tpf_filename = download_file(urls[0], cache=True)
-        tpf = KeplerTargetPixelFile(tpf_filename, quality_bitmask=(32768|65536))
+        tpf = KeplerTargetPixelFile(tpf_filename, quality_bitmask=quality_bitmask)
         times.append(tpf.timeobj.jd)
         cadences.append(tpf.hdu[1].data['CADENCENO'][tpf.quality_mask])
         m1['starttime'] = tpf.hdu[1].data['CADENCENO'][tpf.quality_mask][0]
@@ -238,7 +254,7 @@ def get_mast(obj, search_radius=4.):
     timetable['order'] = (timetable.cadenceno - timetable.cadenceno[0]).astype(int)
     return m, timetable
 
-def open_tpf(tpf_filename, quality_bitmask=(32768|65536)):
+def open_tpf(tpf_filename):
     '''Opens a TPF
 
     Parameters
