@@ -33,14 +33,35 @@ campaign_strb = np.asarray(['01', '02', '03','04', '05', '06', '07' ,'08', '91',
                             '15', '16', '17', '18'])
 
 WCS_DIR = os.path.join(PACKAGEDIR, 'data', 'wcs/')
-TIME_FILE = os.path.join(PACKAGEDIR, 'data', 'campaign_times.txt')
+LC_TIME_FILE = os.path.join(PACKAGEDIR, 'data', 'lc_meta.p')
+SC_TIME_FILE = os.path.join(PACKAGEDIR, 'data', 'sc_meta.p')
 
 # asteriks is ONLY designed to work with the following quality flag.
 # change it at your own risk.
 quality_bitmask=(32768|65536)
 
+def get_meta(campaign, cadence='long'):
+    '''Load the time axis from the package meta data
+    '''
+    timefile=LC_TIME_FILE
+    if cadence in ['short', 'sc']:
+        log.warning('Short cadence is not currently supported. Expect odd behaviour')
+        timefile=SC_TIME_FILE
+    meta = pickle.load(open(timefile,'rb'))
+    if ('{}'.format(campaign) in meta.keys()):
+        time = meta['{}'.format(campaign)]['time']
+        cadenceno = meta['{}'.format(campaign)]['cadenceno']
+    else:
+        time = np.zeros(0)
+        cadenceno = np.zeros(0)
+        for m in meta.items():
+            if '{}'.format(campaign) in m[0][0:-1]:
+                time = np.append(time, m[1]['time'])
+                cadenceno = np.append(cadenceno, m[1]['time'])
+    return time, cadenceno
+
 def get_radec(name, campaign=None, nlagged=None, aperture_radius=3, plot=False,
-              img_dir='', cadence='long'):
+              img_dir='', cadence='long', minvel_cap=0.5*u.pix/u.hour):
     '''Finds RA and Dec of moving object using K2 ephem.
 
     When nlagged is specified, will interpolate the RA and Dec and find the specified
@@ -60,17 +81,30 @@ def get_radec(name, campaign=None, nlagged=None, aperture_radius=3, plot=False,
     aperture_radius: int
         Maximum size of aperture. This is used to ensure lagged apertures never
         overlap.
+    plot : bool
+        Whether or not to create a mp4 movie of the field. This will take a much
+        longer to run if True.
+    img_dir: str
+        Path to store mp4 file
+    cadence : str
+        'long' or 'short'
 
     Returns
     -------
     dfs : list of pandas.DataFrame
         List of dataframes containing Julian Date, RA, Dec, Campaign, and channel.
+        Returns one dataframe per aperture. First dataframe is always the asteroid
+        aperture.
     '''
+    time, cadenceno = get_meta(campaign, cadence)
+    if not hasattr(minvel_cap, 'value'):
+        minvel_cap *= u.pix/u.hour
+
     if campaign is None:
         campaigns = []
         for c in tqdm(np.arange(1,18), desc='Checking campaigns'):
             with silence():
-                df = K2ephem.get_ephemeris_dataframe(name, c, c, step_size=1./(8))
+                df = K2ephem.get_ephemeris_dataframe(name, c, c, step_size=1.)
             k = K2fov.getKeplerFov(c)
             onsil = np.zeros(len(df), dtype=bool)
             for i, r, d in zip(range(len(df)), list(df.ra), list(df.dec)):
@@ -81,45 +115,44 @@ def get_radec(name, campaign=None, nlagged=None, aperture_radius=3, plot=False,
             if np.any(onsil):
                 campaigns.append(c)
                 log.info('\n\tMoving object found in campaign {}'.format(c))
-                df['onsil'] = onsil
-                onsil[np.where(onsil == True)[0][0]:np.where(onsil == True)[0][-1]]= True
-                df = df[onsil]
                 break
         if len(campaigns) == 0:
             raise ValueError('{} never on Silicon'.format(name))
         campaign = campaigns[0]
-    else:
-        with silence():
-            df = K2ephem.get_ephemeris_dataframe(name, campaign, campaign, step_size=1./(8))
-            k = K2fov.getKeplerFov(campaign)
-            onsil = np.zeros(len(df), dtype=bool)
-            for i, r, d in zip(range(len(df)), list(df.ra), list(df.dec)):
-                try:
-                    onsil[i] = k.isOnSilicon(r, d, 1)
-                except:
-                    continue
-            if not np.any(onsil):
-                raise ValueError('{} never on Silicon in campaign {}'
-                                 ''.format(name, campaign))
-            df['onsil'] = onsil
-            onsil[np.where(onsil == True)[0][0]:np.where(onsil == True)[0][-1]]= True
-            df = df[onsil]
+
+    with silence():
+        df = K2ephem.get_ephemeris_dataframe(name, campaign, campaign, step_size=1./(8))
+
+    dftimes = [t[0:23] for t in np.asarray(df.index, dtype=str)]
+    df['jd'] = Time(dftimes,format='isot').jd
+    log.debug('Creating RA, Dec values for all times in campaign')
+    f = interp1d(df.jd, df.ra, fill_value='extrapolate')
+    ra = f(time) * u.deg
+    f = interp1d(df.jd, df.dec, fill_value='extrapolate')
+    dec = f(time) * u.deg
+    df = pd.DataFrame(np.asarray([time, cadenceno, ra, dec]).T,
+                      columns=['jd', 'cadenceno', 'ra', 'dec'])
+    df['campaign'] = campaign
+    log.debug('Finding on silicon values')
+    k = K2fov.getKeplerFov(campaign)
+    onsil = np.zeros(len(df), dtype=bool)
+    for i, r, d in zip(range(len(df)), list(df.ra), list(df.dec)):
+        try:
+            onsil[i] = k.isOnSilicon(r, d, 1)
+        except:
+            continue
+    if not np.any(onsil):
+        raise ValueError('{} never on Silicon in campaign {}'
+                         ''.format(name, campaign))
+    df['onsil'] = onsil
+    onsil[np.where(onsil == True)[0][0]:np.where(onsil == True)[0][-1]] = True
+    df['incampaign'] = onsil
+
+    log.debug('Finding channels')
     x = np.asarray([k.getChannelColRow(r, d) for r, d in zip(df.ra, df.dec)])
     df['channel'] = x[:,0]
-    times = [t[0:23] for t in np.asarray(df.index, dtype=str)]
-    df['jd'] = Time(times,format='isot').jd
-    df['campaign'] = campaign
-    df = df[['jd', 'ra', 'dec', 'campaign', 'channel', 'onsil']]
-    times = pd.read_csv(TIME_FILE)
-    times = times[times.Campaign == str(campaign)]
-    LC = 29.424384 * u.min
-    ncad = np.asarray(times['LCEndCadence'] - times['LCStartCadence'])[0] + 1
-    if cadence in ['short', 'lc']:
-        LC = 58.847035 * u.sec
-        ncad = np.asarray(times['SCEndCadence'] - times['SCStartCadence'])[0] + 1
-    time = np.linspace(np.asarray(times['StartTime']), np.asarray(times['EndTime']), ncad+1)[:-1]
 
-
+    log.debug('Creating lagged apertures')
     # Find the lagged apertures
     if nlagged is None:
         nlagged = 0
@@ -132,11 +165,19 @@ def get_radec(name, campaign=None, nlagged=None, aperture_radius=3, plot=False,
         ok = df.onsil == True
         dr = (np.asarray(df[ok].ra[1:]) - np.asarray(df[ok].ra[0:-1])) * u.deg
         dd = (np.asarray(df[ok].dec[1:]) - np.asarray(df[ok].dec[0:-1])) * u.deg
+        t = np.asarray(df[ok].jd[1:]) * u.day
         dt = (np.asarray(df[ok].jd[1:]) - np.asarray(df[ok].jd[0:-1])) * u.day
-        dr, dd = dr[dt == 0.125*u.day], dd[dt == 0.125*u.day]
-        dt = 0.125*u.day
-        minvel = np.min(np.asarray(((dr**2 + dd**2)**0.5).to(u.arcsec).value/4)*u.pixel/dt.to(u.hour))
+        dr, dd, t = dr[dt == np.median(dt)], dd[dt == np.median(dt)], t[dt == np.median(dt)]
+        dt = np.median(dt)
+        velocity = np.asarray(((dr**2 + dd**2)**0.5).to(u.arcsec).value/4)*u.pixel/dt.to(u.hour)
+        minvel = np.min(velocity)
         log.info('\n\tMinimum velocity of {} found'.format(np.round(minvel, 2)))
+        df['CONTAMINATEDAPERTUREFLAG'] =  np.interp(np.asarray(df.jd), t.value, velocity.value) < minvel_cap.value
+        if minvel < minvel_cap:
+            log.warning('\n\tMinimum velocity ({}) less than '
+                        'minimum velocity cap ({})! Setting to '
+                        'minimum velocity cap.'.format(np.round(minvel, 2), np.round(minvel_cap, 2)))
+            minvel = minvel_cap
         lagspacing = np.arange(-nlagged - 2, nlagged + 4, 2)
         lagspacing = lagspacing[np.abs(lagspacing) != 2]
         lagspacing = lagspacing[np.argsort(lagspacing**2)]
@@ -153,11 +194,12 @@ def get_radec(name, campaign=None, nlagged=None, aperture_radius=3, plot=False,
         df1['dec'] = dec
         dfs.append(df1)
     if plot:
-        log.info('Creating an mp4 of apertures')
+        log.info('Creating an mp4 of apertures, this will take a few minutes. '
+                 'To turn this feature off set plot to False.')
         make_aperture_movie(dfs, name=name, campaign=campaign, lagspacing=lagspacing,
                            aperture_radius=aperture_radius, dir=img_dir)
-        log.info('Saved mp4 to {}{}_aperture.mp4'.format(img_dir, name.replace(' ','')))
-    return dfs, time
+        log.debug('Saved mp4 to {}{}_aperture.mp4'.format(img_dir, name.replace(' ','')))
+    return dfs
 
 def get_mast(obj, search_radius=4.):
     '''Queries MAST for all files near a moving object.

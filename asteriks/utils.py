@@ -15,7 +15,7 @@ import pickle
 from . import PACKAGEDIR
 
 from lightkurve import KeplerTargetPixelFile
-log = logging.getLogger('asteriks')
+log = logging.getLogger('\tASTERIKS ')
 loggingLevels = {'CRITICAL' : 50,
                  'ERROR': 40,
                  'WARNING': 30,
@@ -98,31 +98,26 @@ def create_meta_data(campaigns = np.asarray(['1', '2', '3','4', '5', '6', '7' ,'
     '''
     log.warning('Finding meta data. This requires an online connection and files to be downloaded from MAST. '
                 'This may take up to an hour')
-    log.info('Finding long cadence meta data.')
-    ids = return_first_mast_hit(campaigns, 'LC')
-    lc_meta = {}
-    for idx, i, c in zip(range(len(ids)), ids, campaigns):
-        log.info('\tCampaign {} (ID:{})'.format(c, i))
-        try:
-            with silence():
-                tpf = KeplerTargetPixelFile.from_archive(i, quality_flag=(32768|65536), campaign=c)
-            lc_meta['{}'.format(c)] = {'cadenceno':tpf.cadenceno, 'time':tpf.timeobj.jd}
-        except:
-            log.info('\t Could not find campaign {}'.format(c))
-            continue
-    pickle.dump(lc_meta, open(LC_TIME_FILE,'wb'))
-    log.info('Meta data saved to {}.'.format(LC_TIME_FILE))
+
     log.info('Finding short cadence meta data.')
     ids = return_first_mast_hit(campaigns, 'SC')
     sc_meta = {}
     for idx, i, c in zip(range(len(ids)), ids, campaigns):
         log.info('\tCampaign {}'.format(c))
-        try:
-            with silence():
-                tpf = KeplerTargetPixelFile.from_archive(i, quality_flag=(32768|65536), campaign=c)
-            sc_meta['{}'.format(c)] = {'cadenceno':tpf.cadenceno, 'time':tpf.timeobj.jd}
-        except:
-            log.info('\t Could not find campaign {}'.format(c))
-            continue
+        with silence():
+            tpf = KeplerTargetPixelFile.from_archive(i, quality_flag=(32768|65536),
+                                                     cadence='short')
+        sc_meta['{}'.format(c)] = {'cadenceno':tpf.cadenceno, 'time':tpf.timeobj.jd}
     pickle.dump(sc_meta, open(SC_TIME_FILE,'wb'))
     log.info('Meta data saved to {}.'.format(SC_TIME_FILE))
+
+    log.info('Finding long cadence meta data.')
+    ids = return_first_mast_hit(campaigns, 'LC')
+    lc_meta = {}
+    for idx, i, c in zip(range(len(ids)), ids, campaigns):
+        log.info('\tCampaign {} (ID:{})'.format(c, i))
+        with silence():
+            tpf = KeplerTargetPixelFile.from_archive(i, quality_flag=(32768|65536), campaign=c)
+        lc_meta['{}'.format(c)] = {'cadenceno':tpf.cadenceno, 'time':tpf.timeobj.jd}
+    pickle.dump(lc_meta, open(LC_TIME_FILE,'wb'))
+    log.info('Meta data saved to {}.'.format(LC_TIME_FILE))

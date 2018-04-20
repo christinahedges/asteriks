@@ -33,7 +33,7 @@ def movie(dat, title='', out='out.mp4', scale='linear', **kwargs):
     anim = animation.FuncAnimation(fig, animate, frames=len(data), interval=30)
     anim.save(out, dpi=150)
 
-def make_aperture_movie(obj, name, campaign, lagspacing, aperture_radius, dir=''):
+def make_aperture_movie(obj, name, campaign, lagspacing, aperture_radius, dir='', frameskip=5):
     with plt.style.context(('ggplot')):
         norm = Normalize(vmin = 0, vmax = np.max(lagspacing))
         cmap = plt.get_cmap('RdYlGn_r')
@@ -56,9 +56,9 @@ def make_aperture_movie(obj, name, campaign, lagspacing, aperture_radius, dir=''
                          lw=1, edgecolor='#AAAAAA',
                          facecolor='#AAAAAA', zorder=0, alpha=0.5)
 
-        plt.plot(obj[0].ra, obj[0].dec, zorder=-1, lw=1, color='grey')
-        plt.xlim(obj[0].ra.min(), obj[0].ra.max())
-        plt.ylim(obj[0].dec.min(), obj[0].dec.max())
+        plt.plot(obj[0][obj[0].incampaign==True].ra, obj[0][obj[0].incampaign==True].dec, zorder=-1, lw=1, color='grey')
+        plt.xlim(obj[0][obj[0].incampaign==True].ra.min(), obj[0][obj[0].incampaign==True].ra.max())
+        plt.ylim(obj[0][obj[0].incampaign==True].dec.min(), obj[0][obj[0].incampaign==True].dec.max())
         plt.gca().set_aspect(1)
         plt.xlabel('RA', fontsize=20)
         plt.ylabel('Declination', fontsize=20)
@@ -81,11 +81,14 @@ def make_aperture_movie(obj, name, campaign, lagspacing, aperture_radius, dir=''
                 patch.fc = cmap(norm(np.abs(lagspacing[j])))
                 ax.add_artist(patch)
             return patches
-        log.info('Generating animation')
+        log.debug('Generating animation')
+        frames = np.arange(0,
+                           len(obj[0][obj[0].onsil==True]),
+                           frameskip)
         anim = animation.FuncAnimation(fig, animate,
                                        init_func=init,
-                                       frames=np.arange(len(ra)),
+                                       frames=frames,
                                        interval=20,
                                        blit=True)
-        log.info('Saving animation')
+        log.debug('Saving animation')
         anim.save('{}{}_aperture.mp4'.format(dir, name.replace(' ','')), dpi=150)
