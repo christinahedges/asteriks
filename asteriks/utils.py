@@ -15,6 +15,8 @@ import pickle
 from . import PACKAGEDIR
 
 from lightkurve import KeplerTargetPixelFile
+from lightkurve.mast import ArchiveError
+
 log = logging.getLogger('\tASTERIKS ')
 loggingLevels = {'CRITICAL' : 50,
                  'ERROR': 40,
@@ -39,7 +41,7 @@ def setLevel(level):
     else:
         log.setLevel(loggingLevels[level])
 
-setLevel('INFO')
+setLevel('DEBUG')
 
 
 @contextmanager
@@ -97,16 +99,20 @@ def create_meta_data(campaigns = np.asarray(['1', '2', '3','4', '5', '6', '7' ,'
     '''Creates the meta data for K2. If there has been a new release on MAST, run this.
     '''
     log.warning('Finding meta data. This requires an online connection and files to be downloaded from MAST. '
-                'This may take up to an hour')
+                'This may take several hours.')
 
     log.info('Finding short cadence meta data.')
     ids = return_first_mast_hit(campaigns, 'SC')
     sc_meta = {}
     for idx, i, c in zip(range(len(ids)), ids, campaigns):
         log.info('\tCampaign {}'.format(c))
-        with silence():
-            tpf = KeplerTargetPixelFile.from_archive(i, quality_flag=(32768|65536),
-                                                     cadence='short')
+        try:
+            with silence():
+                tpf = KeplerTargetPixelFile.from_archive(i, quality_flag=(32768|65536),
+                                                         cadence='short')
+        except ArchiveError:
+            log.warning('Could not download {} in Campaign {}'.format(i, c))
+            continue
         sc_meta['{}'.format(c)] = {'cadenceno':tpf.cadenceno, 'time':tpf.timeobj.jd}
     pickle.dump(sc_meta, open(SC_TIME_FILE,'wb'))
     log.info('Meta data saved to {}.'.format(SC_TIME_FILE))
@@ -116,8 +122,13 @@ def create_meta_data(campaigns = np.asarray(['1', '2', '3','4', '5', '6', '7' ,'
     lc_meta = {}
     for idx, i, c in zip(range(len(ids)), ids, campaigns):
         log.info('\tCampaign {} (ID:{})'.format(c, i))
-        with silence():
-            tpf = KeplerTargetPixelFile.from_archive(i, quality_flag=(32768|65536), campaign=c)
+        try:
+            with silence():
+                tpf = KeplerTargetPixelFile.from_archive(i, quality_flag=(32768|65536), campaign=c)
+        except ArchiveError:
+            log.warning('Could not download {} in Campaign {}'.format(i, c))
+            continue
+
         lc_meta['{}'.format(c)] = {'cadenceno':tpf.cadenceno, 'time':tpf.timeobj.jd}
     pickle.dump(lc_meta, open(LC_TIME_FILE,'wb'))
     log.info('Meta data saved to {}.'.format(LC_TIME_FILE))
