@@ -9,27 +9,40 @@ import astropy.units as u
 from .utils import *
 from . import PACKAGEDIR
 
-def movie(dat, title='', out='out.mp4', scale='linear', **kwargs):
+def movie(dat, dif, title='', out='out.mp4', scale='linear', **kwargs):
     '''Create an mp4 movie of a 3D array
     '''
     if scale == 'log':
         data = np.log10(np.copy(dat))
+        diff = np.log10(np.copy(dif))
     else:
         data = dat
-    fig = plt.figure(figsize=(5,4))
-    ax = fig.add_subplot(111)
-    ax.set_facecolor('black')
-    im = ax.imshow(data[0], origin='bottom', **kwargs)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    cbar = fig.colorbar(im, ax=ax)
-    cbar.ax.tick_params(labelsize=10)
+        diff = dif
+    fig, axs = plt.subplots(1, 2, figsize=(10,4))
+    for ax in axs:
+        ax.set_facecolor('black')
+    im1 = axs[0].imshow(data[0], origin='bottom', **kwargs)
+    axs[0].set_xticks([])
+    axs[0].set_yticks([])
+    axs[0].set_title('Asteroid Centered Flux')
+    cbar1 = fig.colorbar(im1, ax=axs[0])
+    cbar1.ax.tick_params(labelsize=10)
+    im2 = axs[1].imshow(diff[0], origin='bottom', **kwargs)
+    axs[1].set_xticks([])
+    axs[1].set_yticks([])
+    axs[1].set_title('Motion Differenced Flux')
+    cbar2 = fig.colorbar(im2, ax=axs[1])
+    cbar2.ax.tick_params(labelsize=10)
     if scale == 'log':
-        cbar.set_label('log10(e$^-$s$^-1$)',fontsize=10)
+        cbar1.set_label('log10(e$^-$s$^-1$)',fontsize=10)
+        cbar2.set_label('log10(e$^-$s$^-1$)',fontsize=10)
     else:
-        cbar.set_label('e$^-$s$^-1$',fontsize=10)
+        cbar1.set_label('e$^-$s$^-1$',fontsize=10)
+        cbar2.set_label('e$^-$s$^-1$',fontsize=10)
+
     def animate(i):
-        im.set_array(data[i])
+        im1.set_array(data[i])
+        im2.set_array(diff[i])
     anim = animation.FuncAnimation(fig, animate, frames=len(data), interval=30)
     anim.save(out, dpi=150)
 

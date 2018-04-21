@@ -12,12 +12,9 @@ import os
 
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
-from astropy.utils.data import download_file, clear_download_cache
 import astropy.units as u
 
 from scipy.interpolate import interp1d
-
-import fitsio
 
 from lightkurve import KeplerTargetPixelFile
 
@@ -36,9 +33,7 @@ WCS_DIR = os.path.join(PACKAGEDIR, 'data', 'wcs/')
 LC_TIME_FILE = os.path.join(PACKAGEDIR, 'data', 'lc_meta.p')
 SC_TIME_FILE = os.path.join(PACKAGEDIR, 'data', 'sc_meta.p')
 
-# asteriks is ONLY designed to work with the following quality flag.
-# change it at your own risk.
-quality_bitmask=(32768|65536)
+PIXEL_TOL = 100
 
 def get_meta(campaign, cadence='long'):
     '''Load the time axis from the package meta data
@@ -192,6 +187,7 @@ def get_radec(name, campaign=None, nlagged=None, aperture_radius=3, plot=False,
         ra = f(df1.jd + l) * u.deg
         f = interp1d(df1.jd, df1.dec, fill_value='extrapolate')
         dec = f(df1.jd + l) * u.deg
+        df1['jd'] += l
         df1['ra'] = ra
         df1['dec'] = dec
         dfs.append(df1)
@@ -223,7 +219,7 @@ def get_radec(name, campaign=None, nlagged=None, aperture_radius=3, plot=False,
 
     return dfs
 
-def get_mast(objs, search_radius=4.):
+def get_mast(objs, search_radius = (PIXEL_TOL*4.)/60.):
     '''Queries MAST for all files near a moving object.
 
     Parameters
@@ -232,7 +228,7 @@ def get_mast(objs, search_radius=4.):
         Result from `get_radec` function
     search_radius : float
         MAST API search radius in arcmin. Default is 4. Increase this to be more
-        robust if TPFs in the channel are larger than 50 pixels.
+        robust if TPFs in the channel are larger than PIXEL_TOL pixels.
 
     Returns
     -------
@@ -285,69 +281,66 @@ def get_mast(objs, search_radius=4.):
     m = m.reset_index(drop=True)
     return m
 
-def open_tpf(tpf_filename):
-    '''Opens a TPF
+
+def find_overlapping_cadences(cadences, poscorr1, poscorr2, tol=5, distance_tol=0.01, mask=None):
+    '''Finds cadences where observations are almost exactly aligned.
+
+    '''
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if mask is None:
+            mask=[]
+
+        if not hasattr(cadences, '__iter__'):
+            cadences = [cadences]
+
+        hits = []
+        flags = []
+        for i in cadences:
+            dist = np.sqrt(((poscorr1 - poscorr1[i]))**2 + ((poscorr2 - poscorr2[i]))**2)
+            pos = np.where(dist < distance_tol)[0]
+            pos = (np.asarray(list(set(pos) - set([i]) - set(mask))))
+            if len(pos) <= tol:
+                pos = np.argsort(dist)
+                pos = pos[pos != i]
+                for m in mask:
+                    pos = pos[pos != m]
+                pos = pos[0:tol]
+                flags.append(0)
+            else:
+                flags.append(1)
+            hits.append(pos)
+
+        if len(hits) == 0:
+            return hits[0], flags[0]
+    return np.asarray(hits), np.asarray(flags)
+
+def build_aperture(n = 5, xoffset=0, yoffset=0):
+    '''Create the X and Y locations for a circular aperture.
 
     Parameters
     ----------
-    tpf_filename : str
-        Name of the file to open. Can be a URL
-    quality_bitmask : bitmask
-        bitmask to apply to data
+    n : float
+        Aperture radius
     '''
-    if tpf_filename.startswith("http"):
-        try:
-            with silence():
-                tpf_filename = download_file(tpf_filename, cache=True)
-        except:
-            log.warning('Can not find file {}'.format(tpf_filename))
-    tpf = fitsio.FITS(tpf_filename)
-    hdr_list = tpf[0].read_header_list()
-    hdr = {elem['name']:elem['value'] for elem in hdr_list}
-    keplerid = int(hdr['KEPLERID'])
-    try:
-        aperture = tpf[2].read()
-    except:
-        log.warning('No aperture found for TPF {}'.format(tpf_filename))
-    aperture_shape = aperture.shape
-    # Get the pixel coordinates of the corner of the aperture
-    hdr_list = tpf[1].read_header_list()
-    hdr = {elem['name']:elem['value'] for elem in hdr_list}
-    col, row = int(hdr['1CRV5P']), int(hdr['2CRV5P'])
-    height, width = aperture_shape[0], aperture_shape[1]
-    y, x = np.meshgrid(np.arange(col, col + width), np.arange(row, row + height))
-    qmask = tpf[1].read()['QUALITY'] & quality_bitmask == 0
-    flux = (tpf[1].read()['FLUX'])[qmask]
-    cadence = (tpf[1].read()['CADENCENO'])[qmask]
-    error = (tpf[1].read()['FLUX_ERR'])[qmask]
-    poscorr1 = (tpf[1].read()['POS_CORR1'])[qmask]
-    poscorr2 = (tpf[1].read()['POS_CORR2'])[qmask]
-    tpf.close()
-
-    return cadence, flux, error, y, x, poscorr1, poscorr2
-
-def make_arrays(name, campaign=None, search_radius=4, aperture_radius=3,
-                nlagged=6, xoffset=0, yoffset=0):
-    '''Make moving TPFs
-    '''
-
-    log.debug('Building aperture timetables')
-    objs = get_radec(name, campaign, nlagged=nlagged, aperture_radius=aperture_radius)
-    # Trim to the times that the asteroid is in the campaign
-    log.debug('Querying MAST for files')
-    mast = get_mast(objs, search_radius=search_radius)
     log.debug('Building apertures')
-    n = aperture_radius
     x, y = np.meshgrid(np.arange(np.ceil(n).astype(int) * 2 + 1, dtype=float), np.arange(np.ceil(n).astype(int) * 2 + 1, dtype=float))
     aper = ((x - n + 1 + xoffset)**2 + (y - n + 1 + yoffset)**2) < (n**2)
     x[~aper] = np.nan
     y[~aper] = np.nan
     xaper, yaper = np.asarray(x), np.asarray(y)
     xaper, yaper = np.asarray(xaper[np.isfinite(xaper)], dtype=int), np.asarray(yaper[np.isfinite(yaper)], dtype=int)
+    return xaper, yaper
 
+def make_arrays(objs, mast, xaper, yaper, n, diff_tol=5):
+    '''Make moving TPFs
+    '''
     ar = np.zeros((len(objs[0]), np.ceil(n).astype(int) * 2, np.ceil(n).astype(int) * 2, len(objs))) * np.nan
     er = np.zeros((len(objs[0]), np.ceil(n).astype(int) * 2, np.ceil(n).astype(int) * 2, len(objs))) * np.nan
-    log.debug('Arrays sized {} x {}'.format(ar.shape[0], ar.shape[1]))
+    diff_ar = np.zeros((len(objs[0]), np.ceil(n).astype(int) * 2, np.ceil(n).astype(int) * 2, len(objs))) * np.nan
+    diff_er = np.zeros((len(objs[0]), np.ceil(n).astype(int) * 2, np.ceil(n).astype(int) * 2, len(objs))) * np.nan
+    difflags = np.zeros(len(objs[0]))
+    log.debug('Arrays sized {}'.format(ar.shape))
 
     mastcoord = SkyCoord(mast.RA, mast.Dec, unit=(u.deg, u.deg))
     for file in tqdm(np.arange(len(mast)), desc='Inflating Files\t'):
@@ -359,10 +352,10 @@ def make_arrays(name, campaign=None, search_radius=4, aperture_radius=3,
 
         for idx, obj in enumerate(objs):
             tablecoord = SkyCoord(obj.ra, obj.dec, unit=(u.deg, u.deg))
-            ok = mastcoord[file].separation(tablecoord) < 50 * 4*u.arcsec
-            tab = obj[['cadenceno','Column_{}_{}'.format(campaign, channel),'Row_{}_{}'.format(campaign, channel)]][ok]
+            ok = mastcoord[file].separation(tablecoord) < PIXEL_TOL * 4*u.arcsec
+            tab = obj[['cadenceno','Column_{}_{}'.format(campaign, channel),'Row_{}_{}'.format(campaign, channel), 'velocity']][ok]
             for t in tab.iterrows():
-                inaperture = np.asarray(['{}, {}'.format(int(i), int(j)) for i, j in zip(xaper - n + t[1][2], yaper - n  + t[1][3])])
+                inaperture = np.asarray(['{}, {}'.format(int(i), int(j)) for i, j in zip(xaper - n + t[1][1], yaper - n  + t[1][2])])
                 mask_1 = np.asarray([i in pixel_coordinates for i in inaperture])
                 if not np.any(mask_1):
                     continue
@@ -370,6 +363,31 @@ def make_arrays(name, campaign=None, search_radius=4, aperture_radius=3,
                 c = np.where(cadence == int(t[1][0]))[0]
                 if len(c) == 0:
                     continue
-                ar[int(t[0][0]), xaper[mask_1], yaper[mask_1], idx] = (flux[c[0]].ravel()[mask_2])
-                er[int(t[0][0]), xaper[mask_1], yaper[mask_1], idx] = (error[c[0]].ravel()[mask_2])
-    return ar, er
+                v = t[1][3]*u.pix/u.hour
+                timetolerance = np.round(((2*n*u.pix)/(v * 0.5*u.hour)).value)
+                clip = np.arange(c[0] - timetolerance, c[0] + timetolerance, 1).astype(int)
+                hits, flag = find_overlapping_cadences(c, poscorr1, poscorr2, mask=clip, tol=diff_tol)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+
+                    if flag[0] == 1:
+                        diff = np.nanmedian(flux[hits[0],:,:], axis=0)
+                        ediff = (1./(len(hits[0]))) * np.nansum(error[hits[0],:,:]**2, axis=0)**0.5
+
+                        diff_ar[int(t[0]), xaper[mask_1], yaper[mask_1], idx] = (diff.ravel()[mask_2])
+                        diff_er[int(t[0]), xaper[mask_1], yaper[mask_1], idx] = (ediff.ravel()[mask_2])
+
+                    ar[int(t[0]), xaper[mask_1], yaper[mask_1], idx] = (flux[c[0]].ravel()[mask_2])
+                    er[int(t[0]), xaper[mask_1], yaper[mask_1], idx] = (error[c[0]].ravel()[mask_2])
+    return ar, er, diff_ar, diff_er
+
+def run(name, campaign=None, search_radius=4, aperture_radius=3,
+        nlagged=6, xoffset=0, yoffset=0):
+
+        objs = get_radec(name, campaign, nlagged=nlagged, aperture_radius=aperture_radius)
+        # Trim to the times that the asteroid is in the campaign
+        mast = get_mast(objs, search_radius=search_radius)
+
+        xaper, yaper = build_aperture(aperture_radius, xoffset=xoffset, yoffset=yoffset)
+
+        make_arrays(objs, mast, xaper, yaper)

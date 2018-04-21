@@ -10,12 +10,16 @@ import astropy.units as u
 import logging
 import K2fov
 from astropy.time import Time
+from astropy.utils.data import download_file, clear_download_cache
 import pandas as pd
 import pickle
 from . import PACKAGEDIR
 
 from lightkurve import KeplerTargetPixelFile
 from lightkurve.mast import ArchiveError
+
+import fitsio
+
 
 log = logging.getLogger('\tASTERIKS ')
 loggingLevels = {'CRITICAL' : 50,
@@ -26,6 +30,10 @@ loggingLevels = {'CRITICAL' : 50,
 
 LC_TIME_FILE = os.path.join(PACKAGEDIR, 'data', 'lc_meta.p')
 SC_TIME_FILE = os.path.join(PACKAGEDIR, 'data', 'sc_meta.p')
+
+# asteriks is ONLY designed to work with the following quality flag.
+# change it at your own risk.
+quality_bitmask=(32768|65536)
 
 def setLevel(level):
     '''Set the level of logging for asteriks.
@@ -132,3 +140,44 @@ def create_meta_data(campaigns = np.asarray(['1', '2', '3','4', '5', '6', '7' ,'
         lc_meta['{}'.format(c)] = {'cadenceno':tpf.cadenceno, 'time':tpf.timeobj.jd}
     pickle.dump(lc_meta, open(LC_TIME_FILE,'wb'))
     log.info('Meta data saved to {}.'.format(LC_TIME_FILE))
+
+def open_tpf(tpf_filename):
+    '''Opens a TPF
+
+    Parameters
+    ----------
+    tpf_filename : str
+        Name of the file to open. Can be a URL
+    quality_bitmask : bitmask
+        bitmask to apply to data
+    '''
+    if tpf_filename.startswith("http"):
+        try:
+            with silence():
+                tpf_filename = download_file(tpf_filename, cache=True)
+        except:
+            log.warning('Can not find file {}'.format(tpf_filename))
+    tpf = fitsio.FITS(tpf_filename)
+    hdr_list = tpf[0].read_header_list()
+    hdr = {elem['name']:elem['value'] for elem in hdr_list}
+    keplerid = int(hdr['KEPLERID'])
+    try:
+        aperture = tpf[2].read()
+    except:
+        log.warning('No aperture found for TPF {}'.format(tpf_filename))
+    aperture_shape = aperture.shape
+    # Get the pixel coordinates of the corner of the aperture
+    hdr_list = tpf[1].read_header_list()
+    hdr = {elem['name']:elem['value'] for elem in hdr_list}
+    col, row = int(hdr['1CRV5P']), int(hdr['2CRV5P'])
+    height, width = aperture_shape[0], aperture_shape[1]
+    y, x = np.meshgrid(np.arange(col, col + width), np.arange(row, row + height))
+    qmask = tpf[1].read()['QUALITY'] & quality_bitmask == 0
+    flux = (tpf[1].read()['FLUX'])[qmask]
+    cadence = (tpf[1].read()['CADENCENO'])[qmask]
+    error = (tpf[1].read()['FLUX_ERR'])[qmask]
+    poscorr1 = (tpf[1].read()['POS_CORR1'])[qmask]
+    poscorr2 = (tpf[1].read()['POS_CORR2'])[qmask]
+    tpf.close()
+
+    return cadence, flux, error, y, x, poscorr1, poscorr2
