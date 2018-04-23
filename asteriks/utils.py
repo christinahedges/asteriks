@@ -55,6 +55,8 @@ setLevel('DEBUG')
 @contextmanager
 def silence():
     '''Suppreses all output'''
+    logger = logging.getLogger()
+    logger.disabled = True
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with open(os.devnull, "w") as devnull:
@@ -156,8 +158,9 @@ def open_tpf(tpf_filename):
             with silence():
                 tpf_filename = download_file(tpf_filename, cache=True)
         except:
-            log.warning('Can not find file {}'.format(tpf_filename))
+            log.warning('Cannot find file {}'.format(tpf_filename))
     tpf = fitsio.FITS(tpf_filename)
+
     hdr_list = tpf[0].read_header_list()
     hdr = {elem['name']:elem['value'] for elem in hdr_list}
     keplerid = int(hdr['KEPLERID'])
