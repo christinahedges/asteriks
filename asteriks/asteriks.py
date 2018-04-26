@@ -1,6 +1,4 @@
 "Makes light curves of moving objects in K2 data"
-PACKAGEDIR = '/Users/ch/K2/projects/asteriks/python/' #For now
-
 import logging
 import numpy as np
 import pandas as pd
@@ -504,6 +502,9 @@ def run(name, campaign, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-aster
         fig = plt.figure(figsize=(12, 3))
         ax = plt.subplot2grid((1, 4), (0, 0), colspan=3)
         ax.errorbar(final_lcs[2]['t'], final_lcs[2]['lc'], final_lcs[2]['elc'], label='N Pixels {} Perc {}'.format(final_lcs[2]['npix'], final_lcs[2]['perc']), marker='.', ls='', markersize=2)
+        ax.xlabel('Time (Julian Date)')
+        ax.ylabel('Counts e$^-$/s')
+        ax.title('{}'.format(name))
         ax.legend()
         ax = plt.subplot2grid((1, 4), (0, 3))
         ax.imshow(thumb, origin='bottom')
