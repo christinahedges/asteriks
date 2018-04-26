@@ -15,9 +15,6 @@ import pandas as pd
 import pickle
 from . import PACKAGEDIR
 
-from lightkurve import KeplerTargetPixelFile
-from lightkurve.mast import ArchiveError
-
 import fitsio
 
 
