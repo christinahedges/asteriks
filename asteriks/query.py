@@ -5,7 +5,6 @@ from astropy.utils.data import download_file
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
-from astroquery.simbad import Simbad
 from astropy.coordinates import SkyCoord
 import logging
 import warnings
