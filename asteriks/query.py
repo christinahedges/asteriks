@@ -1,8 +1,12 @@
+'''Queries MAST for files relating to an asteroid
+'''
+
 from astropy.utils.data import download_file
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
 from astroquery.simbad import Simbad
+from astropy.coordinates import SkyCoord
 import logging
 import warnings
 from contextlib import contextmanager
@@ -11,132 +15,177 @@ import K2ephem
 import matplotlib.pyplot as plt
 import pickle
 import json
+import ast
+from copy import deepcopy
 
 from .utils import *
+from . import PACKAGEDIR
+from . import plotting
+
+class CAFFailure(Exception):
+    # There are no CAF files at MAST to use for this object
+    pass
+
+
+MOV_FILE = os.path.join(PACKAGEDIR, 'data', 'moving_objects.csv')
+mov = pd.read_csv(MOV_FILE)
+mov.NAMES = [ast.literal_eval(m.replace("""' '""","""','""")) for m in mov.NAMES]
+
+
+def find_mast_files_using_CAF(name):
+    '''Find all the custom aperture files for a specific moving object.
+
+    Parameters
+    ----------
+    name : str
+        Name of moving object to query
+    Returns
+    -------
+    mast : pandas.DataFrame
+        DataFrame containing the EPIC ids, campaigns and channels of all files in
+        the custom aperture for the object
+    '''
+    mask = np.zeros(len(mov), dtype=bool)
+    for idx, m in enumerate(mov.NAMES):
+        try:
+            mask[idx] = np.any(np.asarray([name.split('.')[-1].lower() in i.lower() for i in m]))
+        except:
+            continue
+    mast = pd.DataFrame(columns=['RA','Dec','EPIC', 'channel'])
+    if np.any(mask):
+        string = np.asarray(mov.STRING[mask])[0]
+        log.debug('{} had a custom mask in K2'.format(string))
+        string = np.asarray(mov.STRING[mask])[0]
+        MAST_API = 'https://archive.stsci.edu/k2/data_search/search.php?'
+        extra = 'outputformat=CSV&action=Search'
+        columns = '&selectedColumnsCsv=sci_ra,sci_dec,ktc_k2_id,ktc_investigation_id,sci_channel,sci_campaign'
+        query = 'objtype={}&'.format(string.split('.')[-1].replace(' ','%20'))
+        chunk_df = pd.read_csv(MAST_API + query + extra + columns,
+                               error_bad_lines=False,
+                               names=['RA','Dec','EPIC','Investigation ID', 'channel', 'campaign'])
+        chunk_df = chunk_df.dropna(subset=['EPIC']).reset_index(drop=True)
+        chunk_df = chunk_df.loc[chunk_df.RA != 'RA (J2000)']
+        chunk_df = chunk_df.loc[chunk_df.RA != 'ra']
+        mast = mast.append(chunk_df.drop_duplicates(['EPIC']).reset_index(drop=True))
+        log.debug('\t{} Files found'.format(len(mast)))
+    else:
+        log.error('Could not find a CAF file for this moving body.')
+        raise CAFFailure()
+    return mast
+
+
+def find_moving_objects_in_campaign(campaign=2):
+    '''Finds the names of all moving objects in a given campaign with a custom
+    aperture file.
+
+    Parameters
+    ----------
+    campaign : int
+        A campaign number to search
+    Returns
+    -------
+    obj : list
+        List of names of asteroids
+    '''
+    mask = np.zeros(len(mov), dtype=bool)
+    campaigns = [campaign]
+    if campaign > 8:
+        campaigns = [campaign, campaign*10+1, campaign*10+2]
+    for c in campaigns:
+        mask |= np.asarray([np.any(np.asarray([(i == str(c)) for i in str(m).split('|')]))
+                          for m in mov.campaign], dtype=bool)
+    return deepcopy((mov[mask][['NAMES', 'campaign']])).reset_index(drop=True)
 
 
 
-def get_moving_objects(outfile='out.p', plot=True):
-    obj=pd.DataFrame(columns=['InvestigationID', 'Name', 'Campaign', 'EPICs', 'dist', 'tpfs', 'minmag', 'maxmag'])
-    k=0
-    for campaign in tqdm(range(20), desc='Finding TILES'):
-        targlisturl = 'https://keplerscience.arc.nasa.gov/data/campaigns/c{}/K2Campaign{}targets.csv'.format(campaign,campaign)
-        with silence():
-            targlistfname = download_file(targlisturl, cache=True)
-        df = pd.read_csv(targlistfname)
-        col = np.asarray(df.columns)[np.asarray(['RA' in d for d in df.columns])][0]
-        if isinstance(df[col][0], str):
-            mask = np.asarray([len(d.strip()) for d in df[col]])==0
-        else:
-            mask = np.isfinite(df[col])
-        col = np.asarray(df.columns)[np.asarray(['Investigation' in d for d in df.columns])][0]
-        ids1=np.asarray(df[col][mask])
-        holdids=[]
-        ids=[]
+def find_all_nearby_files(RA, Dec, Channels, campaign, search_radius=(100*4.)/60.):
+    '''Queries MAST for all files near a moving object.
 
-        for i in ids1:
-            for j in np.unique(i.split('|')):
-                ids.append(j)
-                if len(np.unique(i.split('|')))==1:
-                    holdids.append(j)
-        holdids=np.unique(holdids)
-        ids=np.asarray(ids)
+    Parameters
+    ----------
+    objs : list of pandas.DataFrame's
+        Result from `get_radec` function
+    search_radius : float
+        MAST API search radius in arcmin. Default is 4. Increase this to be more
+        robust if TPFs in the channel are larger than PIXEL_TOL pixels.
 
-        ids=np.unique(ids)
-        mask=[('TILE' in i) for i in ids]
-        mask=np.any([mask,np.in1d(ids,holdids)],axis=0)
+    Returns
+    -------
+    mast : pandas.DataFrame
+        A dataframe with all the target pixel files near the object at any time.
+    '''
 
-        ids=ids[mask]
-        for i in ids:
-            i=i.strip(' ')
-            i2=np.asarray(i.split('_'))
-            pos=np.where((i2!='LC')&(i2!='SSO')&(i2!='TILE')&(i2!='TROJAN')&(i2!='SC'))[0]
-            i2=' '.join(i2[pos])
-            i2=np.asarray(i2.split('-'))
-            pos=np.where((i2!='LC')&(i2!='SSO')&(i2!='TILE')&(i2!='TROJAN')&(i2!='SC'))[0]
-            i2=' '.join(i2[pos])
+    ra, dec, channel = np.asarray(RA), np.asarray(Dec), np.asarray(Channels)
+    ra_chunk = list(chunk(ra, int(np.ceil(len(ra)/100))))
+    dec_chunk = list(chunk(dec, int(np.ceil(len(ra)/100))))
+    channel_chunk = list(chunk(channel, int(np.ceil(len(ra)/100))))
 
-            if (i2[0:4].isdigit()) and (~i2[4:6].isdigit()) and (i2[6:].isdigit()):
-                i2=' '.join([i2[0:4],i2[4:]])
-            obj.loc[k]=(np.transpose([i,i2,campaign,'',0,0,0,0]))
-            k+=1
+    MAST_API = 'https://archive.stsci.edu/k2/data_search/search.php?'
+    extra = 'outputformat=CSV&action=Search'
+    columns = '&selectedColumnsCsv=sci_ra,sci_dec,ktc_k2_id,ktc_investigation_id,sci_channel'
+    mast = pd.DataFrame(columns=['RA','Dec','EPIC', 'channel'])
+    campaign = np.unique(campaign)[0]
+    for idx in tqdm(range(len(ra_chunk)), desc='Querying MAST \t'):
+        r, d, ch = ra_chunk[idx], dec_chunk[idx], channel_chunk[idx]
+        query = 'RA={}&DEC={}&radius={}&sci_campaign={}&sci_channel={}&max_records=100&'.format(
+                        ",".join(list(np.asarray(r, dtype='str'))),
+                        ",".join(list(np.asarray(d, dtype='str'))),
+                        search_radius,
+                        campaign,
+                        ",".join(list(np.asarray(np.asarray(ch, dtype=int),
+                        dtype='str'))))
+        chunk_df = pd.read_csv(MAST_API + query + extra + columns,
+                               error_bad_lines=False,
+                               names=['RA','Dec','EPIC','Investigation ID', 'channel'])
+        chunk_df = chunk_df.dropna(subset=['EPIC']).reset_index(drop=True)
+        chunk_df = chunk_df.loc[chunk_df.RA != 'RA (J2000)']
+        chunk_df = chunk_df.loc[chunk_df.RA != 'ra']
+        mast = mast.append(chunk_df.drop_duplicates(['EPIC']).reset_index(drop=True))
+    mast = mast.drop_duplicates(['EPIC']).reset_index(drop='True')
+    mast['campaign'] = campaign
+    return mast
 
 
-        for i in ids:
-            mask=[i in d for d in df[col]]
-            epic=np.asarray(df[df.columns[0]][mask])
-            loc=np.where(obj.InvestigationID==i.strip())[0]
-            obj.loc[loc[0],'EPICs']=list(epic)
-            obj.loc[loc[0],'tpfs']=len(epic)
-    obj=obj.reset_index(drop=True)
-    with tqdm(total=len(obj), desc='Querying JPL') as pbar:
-        for i,o in obj.iterrows():
-            try:
-                with silence():
-                    df=K2ephem.get_ephemeris_dataframe(o.Name,o.Campaign,o.Campaign)
-                obj.loc[i,['minmag']]=float(np.asarray(df.mag).min())
-                obj.loc[i,['maxmag']]=float(np.asarray(df.mag).max())
-                ra,dec=np.asarray(df.ra),np.asarray(df.dec)
-                obj.loc[i,['dist']]=(np.nansum(((ra[1:]-ra[0:-1])**2+(dec[1:]-dec[0:-1])**2)**0.5))
-                pbar.update()
-            except:
-                continue
-                pbar.update()
-    obj = obj[np.asarray(obj.dist, dtype=float) != 0].reset_index(drop=True)
-    log.info('Saved file to {}'.format(outfile))
-    pickle.dump(obj,open(outfile,'wb'))
-    return obj
+def clean_mast_file(mast, campaign):
+    '''Add URLs and cut down to the right campaign.
+    '''
+    ids = np.asarray(mast.EPIC, dtype=str)
+    c = np.asarray(['{:02}'.format(campaign) in c[0:2] for c in campaign_strb])
+    # Only want data from the correct campaign
+    ok = np.zeros(len(mast)).astype(bool)
+    for c1 in campaign_stra[c]:
+        ok |= np.asarray([m[1]['campaign'] == c1 for m in mast.iterrows()])
+    ok |= np.asarray([m[1]['campaign'] == campaign for m in mast.iterrows()])
+    if not np.any(ok):
+        raise CAFFailure
+    mast = mast[ok].reset_index(drop=True)
+    m = pd.DataFrame(columns = mast.columns)
+    for a, b in zip(campaign_stra[c], campaign_strb[c]):
+        m1 = mast.copy()
+        urls = ['http://archive.stsci.edu/missions/k2/target_pixel_files/c{}/'.format(a)+i[0:4] +
+                '00000/'+i[4:6]+'000/ktwo' + i +
+                '-c{}_lpd-targ.fits.gz'.format(b) for i in ids]
+        m1['url'] = urls
+        m1['campaign'] = b
+        m = m.append(m1)
+    coord = SkyCoord(m.RA, m.Dec, unit=(u.hourangle, u.deg))
+    m['RA'] = coord.ra.deg
+    m['Dec'] = coord.dec.deg
+    m = m.reset_index(drop=True)
+    return m
 
-def plot_tracks(obj, img_dir=''):
-    fpurl='https://raw.githubusercontent.com/KeplerGO/K2FootprintFiles/master/json/k2-footprint.json'
-    fpfname=download_file(fpurl,cache=True)
-    fp = json.load(open(fpfname))
-
-    with tqdm(total=20) as pbar:
-        for campaign in range(20):
-            o=obj[np.asarray(obj.Campaign,dtype=float)==campaign]
-            nepics = np.asarray([len(o) for o in np.asarray(obj.EPICs)])
-            srcs=len(nepics[nepics>=3])
-            if srcs==0:
-                pbar.update()
-                continue
-            fig,ax=plt.subplots(figsize=(10,10))
-            for module in range(100):
-                try:
-                    ch = fp["c{}".format(campaign)]["channels"]["{}".format(module)]
-                    ax.plot(ch["corners_ra"] + ch["corners_ra"][:1],
-                            ch["corners_dec"] + ch["corners_dec"][:1],c='C0')
-                    ax.text(np.mean(ch["corners_ra"] + ch["corners_ra"][:1]),np.mean(ch["corners_dec"] + ch["corners_dec"][:1]),'{}'.format(module),fontsize=10,color='C0',va='center',ha='center',alpha=0.3)
-                except:
-                    continue
-            xlim,ylim=ax.get_xlim(),ax.get_ylim()
-
-            for i,o in obj[np.asarray(obj.Campaign,dtype=float)==campaign].iterrows():
-                if nepics[i]<=3:
-                    continue
-                if o.Name.startswith('GO'):
-                    continue
-                try:
-                    with silence():
-                        df=K2ephem.get_ephemeris_dataframe(o.Name, campaign, campaign, step_size=2)
-                except:
-                    continue
-
-                ra,dec=df.ra,df.dec
-                if fp["c{}".format(campaign)]['ra']-np.mean(ra)>300:
-                    ra+=360.
-                ok=np.where((ra>xlim[0])&(ra<xlim[1])&(dec>ylim[0])&(dec<ylim[1]))[0]
-                ra,dec=ra[ok],dec[ok]
-                p=ax.plot(ra,dec,lw=(24.-float(o.maxmag))/2)
-                c=p[0].get_color()
-                ax.text(np.median(ra),np.median(dec)+0.2,o.Name,color=c,zorder=99,fontsize=10)
-
-            ax.set_xlim(xlim)
-            ax.set_ylim(ylim)
-            plt.title('Campaign {}'.format(campaign),fontsize=20)
-            plt.xlabel('RA')
-            plt.ylabel('Dec')
-
-            fig.savefig(img_dir+'campaign{}.png'.format(campaign),bbox_inches='tight',dpi=200)
-            pbar.update()
-            plt.close()
+def get_mast(name, campaign, timetables=None):
+    try:
+        mast = find_mast_files_using_CAF(name)
+        mast = clean_mast_file(mast, campaign)
+    except CAFFailure:
+        if timetables is None:
+            log.exception('There is no CAF file and no timetable for this'
+                          ' object. Run again with a timetable')
+        log.info('There was no CAF file for {}. Querying nearby.'.format(name))
+        mast = find_all_nearby_files(np.asarray(timetables[0].ra),
+                                          np.asarray(timetables[0].dec),
+                                          np.asarray(timetables[0].channel),
+                                          np.asarray(timetables[0].campaign))
+        mast = clean_mast_file(mast, campaign)
+    return mast

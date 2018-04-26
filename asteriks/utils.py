@@ -22,34 +22,22 @@ import fitsio
 
 
 log = logging.getLogger('\tASTERIKS ')
-loggingLevels = {'CRITICAL' : 50,
-                 'ERROR': 40,
-                 'WARNING': 30,
-                 'INFO': 20,
-                 'DEBUG': 10}
 
+campaign_stra = np.asarray(['1', '2', '3','4', '5', '6', '7' ,'8', '91', '92',
+                            '101', '102', '111', '112', '12', '13', '14', '15',
+                            '16', '17', '18'])
+campaign_strb = np.asarray(['01', '02', '03','04', '05', '06', '07' ,'08', '91',
+                            '92', '101', '102', '111', '112', '12', '13', '14',
+                            '15', '16', '17', '18'])
+
+WCS_DIR = os.path.join(PACKAGEDIR, 'data', 'wcs/')
 LC_TIME_FILE = os.path.join(PACKAGEDIR, 'data', 'lc_meta.p')
 SC_TIME_FILE = os.path.join(PACKAGEDIR, 'data', 'sc_meta.p')
+
 
 # asteriks is ONLY designed to work with the following quality flag.
 # change it at your own risk.
 quality_bitmask=(32768|65536)
-
-def setLevel(level):
-    '''Set the level of logging for asteriks.
-
-    Parameters
-    ----------
-    level : str
-        Choose from CRITICAL, ERROR, WARNING, INFO and DEBUG
-    '''
-    if level not in loggingLevels:
-        log.setLevel(20)
-        log.error(" No logging level of '{}'. Setting to INFO".format(level))
-    else:
-        log.setLevel(loggingLevels[level])
-
-setLevel('DEBUG')
 
 
 @contextmanager
@@ -143,6 +131,7 @@ def create_meta_data(campaigns = np.asarray(['1', '2', '3','4', '5', '6', '7' ,'
     pickle.dump(lc_meta, open(LC_TIME_FILE,'wb'))
     log.info('Meta data saved to {}.'.format(LC_TIME_FILE))
 
+
 def open_tpf(tpf_filename):
     '''Opens a TPF
 
@@ -184,3 +173,49 @@ def open_tpf(tpf_filename):
     tpf.close()
 
     return cadence, flux, error, y, x, poscorr1, poscorr2
+
+
+def build_aperture(n = 5, shape='square', xoffset=0, yoffset=0):
+    '''Create the X and Y locations for a circular aperture.
+
+    Parameters
+    ----------
+    n : float
+        Aperture radius
+    '''
+    log.debug('Building apertures')
+    if isinstance(n, int):
+        n1, n2= n,n
+    if hasattr(n, '__iter__'):
+        if (len(np.asarray(n).shape) == 1):
+            n1, n2 = n[0], n[1]
+        elif not isinstance(n[0], bool):
+            log.error('Please pass a radius, two length dimensions or '
+                          'a boolean array')
+
+    if 'n1' in locals():
+        x, y = np.meshgrid(np.arange(np.ceil(n1).astype(int) * 2 + 1, dtype=float), np.arange(np.ceil(n2).astype(int) * 2 + 1, dtype=float))
+        if isinstance(shape, str):
+            if shape == 'circular':
+                aper = ((x - n1 + xoffset)**2 + (y - n2 + yoffset)**2) < (np.max([n1,n2])**2)
+            if shape == 'square':
+                aper = np.ones(x.shape, dtype=bool)
+    else:
+        x, y = np.meshgrid(np.arange(aper.shape[0], dtype=float), np.arange(aper.shape[1], dtype=float))
+        aper = n
+    x[~aper] = np.nan
+    y[~aper] = np.nan
+    xaper, yaper = np.asarray(x), np.asarray(y)
+    xaper, yaper = np.asarray(xaper[np.isfinite(xaper)], dtype=int), np.asarray(yaper[np.isfinite(yaper)], dtype=int)
+    return xaper, yaper, aper
+
+def fix_aperture(aper):
+    '''Make sure the aperture is one continuous blob.
+    '''
+    idx = 0
+    jdx = 0
+    okaper = np.copy(aper*False)
+    for idx in np.arange(1, aper.shape[0] - 1):
+        for jdx in np.arange(1, aper.shape[1] - 1):
+            okaper[idx, jdx] |= np.any(np.any([(aper[idx][jdx + 1]), (aper[idx][jdx - 1]), (aper[idx - 1][jdx]), (aper[idx + 1][jdx])]))
+    aper*=okaper
