@@ -14,7 +14,6 @@ from astropy.utils.data import download_file, clear_download_cache
 import pandas as pd
 import pickle
 from . import PACKAGEDIR
-
 import fitsio
 
 
