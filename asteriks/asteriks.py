@@ -15,7 +15,6 @@ from astropy.stats import sigma_clipped_stats
 
 from scipy.interpolate import interp1d
 
-from lightkurve import KeplerTargetPixelFile
 
 from .utils import *
 from .plotting import *

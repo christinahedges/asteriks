@@ -34,7 +34,7 @@ setup(name='asteriks',
                         'fitsio'],
       setup_requires=['pytest-runner'],
       tests_require=['pytest', 'pytest-cov', 'pytest-remotedata'],
-      include_package_data=True,                    
+      include_package_data=True,
       entry_points=entry_points,
       classifiers=[
           "Development Status :: 3 - Alpha",
