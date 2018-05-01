@@ -161,7 +161,7 @@ def clean_mast_file(mast, campaign):
     m = pd.DataFrame(columns = mast.columns)
     for a, b in zip(campaign_stra[c], campaign_strb[c]):
         m1 = mast.copy()
-	ids = np.asarray(m1.EPIC, dtype=str)
+        ids = np.asarray(m1.EPIC, dtype=str)
         urls = ['http://archive.stsci.edu/missions/k2/target_pixel_files/c{}/'.format(a)+i[0:4] +
                 '00000/'+i[4:6]+'000/ktwo' + i +
                 '-c{}_lpd-targ.fits.gz'.format(b) for i in ids]
