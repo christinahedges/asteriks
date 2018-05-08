@@ -19,9 +19,11 @@ from scipy.interpolate import interp1d
 from .utils import *
 from .plotting import *
 from .query import *
+from .web import *
 
 from time import time
 from . import PACKAGEDIR
+
 
 class WCSFailure(Exception):
     # There are no WCS files in asteriks to use for this object
@@ -47,11 +49,11 @@ def get_meta(campaign, cadence='long'):
     cadeceno : numpy.ndarray
         Cadence numbers for campaign
     '''
-    timefile=LC_TIME_FILE
+    timefile = LC_TIME_FILE
     if cadence in ['short', 'sc']:
         log.warning('Short cadence is not currently supported. Expect odd behaviour')
-        timefile=SC_TIME_FILE
-    meta = pickle.load(open(timefile,'rb'))
+        timefile = SC_TIME_FILE
+    meta = pickle.load(open(timefile, 'rb'))
     if ('{}'.format(campaign) in meta.keys()):
         time = meta['{}'.format(campaign)]['time']
         cadenceno = meta['{}'.format(campaign)]['cadenceno']
@@ -80,7 +82,7 @@ def get_campaign_number(name):
     '''
     campaigns = []
     log.debug('Finding campaign number for {}'.format(name))
-    for c in tqdm(np.arange(1,18), desc='Checking campaigns'):
+    for c in tqdm(np.arange(1, 18), desc='Checking campaigns'):
         with silence():
             df = K2ephem.get_ephemeris_dataframe(name, c, c, step_size=1)
         k = K2fov.getKeplerFov(c)
@@ -128,7 +130,7 @@ def find_lagged_apertures(df, nlagged=0, aperture_radius=3, minvel_cap=0.1*u.pix
     if nlagged % 2 is 1:
         log.warning('\n\tOdd value of nlagged set ({}). '
                     'Setting to nearest even value. ({})'.format(nlagged, nlagged + 1))
-        nlagged+=1
+        nlagged += 1
 
     ok = df.onsil == True
     dr = (np.asarray(df[ok].ra[1:]) - np.asarray(df[ok].ra[0:-1])) * u.deg
@@ -141,8 +143,8 @@ def find_lagged_apertures(df, nlagged=0, aperture_radius=3, minvel_cap=0.1*u.pix
     minvel = np.min(velocity)
     log.debug('\n\tMinimum velocity of {} found'.format(np.round(minvel, 2)))
     velocity = np.interp(np.asarray(df.jd), t.value, velocity.value)
-    df['velocity'] =  velocity
-    df['CONTAMINATEDAPERTUREFLAG'] =  velocity < minvel_cap.value
+    df['velocity'] = velocity
+    df['CONTAMINATEDAPERTUREFLAG'] = velocity < minvel_cap.value
     if minvel < minvel_cap:
         log.warning('\n\tMinimum velocity ({}) less than '
                     'minimum velocity cap ({})! Setting to '
@@ -202,7 +204,7 @@ def get_radec(name, campaign=None, nlagged=0, aperture_radius=3, plot=False,
 
     # Interpolate to the time values for the campaign.
     dftimes = [t[0:23] for t in np.asarray(df.index, dtype=str)]
-    df['jd'] = Time(dftimes,format='isot').jd
+    df['jd'] = Time(dftimes, format='isot').jd
     log.debug('Creating RA, Dec values for all times in campaign')
     f = interp1d(df.jd, df.ra, fill_value='extrapolate')
     ra = f(time) * u.deg
@@ -230,7 +232,7 @@ def get_radec(name, campaign=None, nlagged=0, aperture_radius=3, plot=False,
 
     # Find the channel the asteroid is on at each point in time.
     log.debug('Finding channels')
-    x = np.zeros((len(df),3))
+    x = np.zeros((len(df), 3))
     for idx, r, d in zip(range(len(df)), df.ra, df.dec):
         try:
             x[idx, :] = k.getChannelColRow(r, d)
@@ -259,8 +261,8 @@ def get_radec(name, campaign=None, nlagged=0, aperture_radius=3, plot=False,
         log.info('Creating an mp4 of apertures, this will take a few minutes. '
                  'To turn this feature off set plot to False.')
         plot_aperture_movie(dfs, name=name, campaign=campaign, lagspacing=lagspacing,
-                           aperture_radius=aperture_radius, dir=img_dir)
-        log.debug('Saved mp4 to {}{}_aperture.mp4'.format(img_dir, name.replace(' ','')))
+                            aperture_radius=aperture_radius, dir=img_dir)
+        log.debug('Saved mp4 to {}{}_aperture.mp4'.format(img_dir, name.replace(' ', '')))
 
     # We don't need anything that wasn't in the campaign
     # Remove anything where there is no incampaign flag.
@@ -291,7 +293,7 @@ def find_overlapping_cadences(cadences, poscorr1, poscorr2, tol=5, distance_tol=
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         if mask is None:
-            mask=[]
+            mask = []
 
         if not hasattr(cadences, '__iter__'):
             cadences = [cadences]
@@ -354,7 +356,8 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
-                    wcs = pickle.load(open('{}c{}_{:02}.p'.format(WCS_DIR, campaign, int(channel)), 'rb'))
+                    wcs = pickle.load(open('{}c{}_{:02}.p'.format(
+                        WCS_DIR, campaign, int(channel)), 'rb'))
             except FileNotFoundError:
                 log.error('There is no WCS file for Campaign {} Channel {}'
                           ''.format(campaign, channel))
@@ -365,15 +368,16 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
                 cadence, flux, error, column, row, poscorr1, poscorr2 = open_tpf(url)
             if can_difference:
                 if np.all(~np.isfinite(poscorr1)) & np.all(~np.isfinite(poscorr1)):
-                    can_difference=False
+                    can_difference = False
                     log.warning('\nThere is no POS_CORR information. Can not use difference imaging.\n')
             else:
                 if np.any(np.isfinite(poscorr1)) & np.any(np.isfinite(poscorr1)):
-                    can_difference=True
+                    can_difference = True
                     log.warning('\nThere is POS_CORR information. Difference imaging turned on.\n')
         except OSError:
             continue
-        pixel_coordinates = np.asarray(['{}, {}'.format(i, j) for i, j in zip(column.ravel(), row.ravel())])
+        pixel_coordinates = np.asarray(['{}, {}'.format(i, j)
+                                        for i, j in zip(column.ravel(), row.ravel())])
 
         r, d = np.asarray(wcs.wcs_pix2world(column.ravel(), row.ravel(), 1))
         coords = SkyCoord(r, d, unit=(u.deg, u.deg))
@@ -384,10 +388,12 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
             ok = np.zeros(len(tablecoord)).astype(bool)
             for coord in coords:
                 ok |= tablecoord.separation(coord) < PIXEL_TOL*4*u.arcsec
-            tab = obj[['cadenceno','Column_{}_{}'.format(campaign, channel),'Row_{}_{}'.format(campaign, channel), 'velocity']][ok]
+            tab = obj[['cadenceno', 'Column_{}_{}'.format(
+                campaign, channel), 'Row_{}_{}'.format(campaign, channel), 'velocity']][ok]
             for t in tab.iterrows():
 
-                inaperture = np.asarray(['{}, {}'.format(int(i), int(j)) for i, j in zip(xaper - n + t[1][1], yaper - n  + t[1][2])])
+                inaperture = np.asarray(['{}, {}'.format(int(i), int(j))
+                                         for i, j in zip(xaper - n + t[1][1], yaper - n + t[1][2])])
                 mask_1 = np.asarray([i in pixel_coordinates for i in inaperture])
                 if not np.any(mask_1):
                     continue
@@ -399,14 +405,18 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
                     v = t[1][3]*u.pix/u.hour
                     timetolerance = np.round(((2*n*u.pix)/(v * 0.5*u.hour)).value)
                     clip = np.arange(c[0] - timetolerance, c[0] + timetolerance, 1).astype(int)
-                    hits, flag = find_overlapping_cadences(c, poscorr1, poscorr2, mask=clip, tol=diff_tol)
+                    hits, flag = find_overlapping_cadences(
+                        c, poscorr1, poscorr2, mask=clip, tol=diff_tol)
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         if flag[0] == 1:
-                            diff = np.nanmedian(flux[hits[0],:,:], axis=0)
-                            ediff = (1./(len(hits[0]))) * np.nansum(error[hits[0],:,:]**2, axis=0)**0.5
-                            diff_ar[int(t[0]), xaper[mask_1], yaper[mask_1], idx] = (diff.ravel()[mask_2])
-                            diff_er[int(t[0]), xaper[mask_1], yaper[mask_1], idx] = (ediff.ravel()[mask_2])
+                            diff = np.nanmedian(flux[hits[0], :, :], axis=0)
+                            ediff = (1./(len(hits[0]))) * \
+                                np.nansum(error[hits[0], :, :]**2, axis=0)**0.5
+                            diff_ar[int(t[0]), xaper[mask_1], yaper[mask_1],
+                                    idx] = (diff.ravel()[mask_2])
+                            diff_er[int(t[0]), xaper[mask_1], yaper[mask_1],
+                                    idx] = (ediff.ravel()[mask_2])
                 with warnings.catch_warnings():
                     ar[int(t[0]), xaper[mask_1], yaper[mask_1], idx] = (flux[c[0]].ravel()[mask_2])
                     er[int(t[0]), xaper[mask_1], yaper[mask_1], idx] = (error[c[0]].ravel()[mask_2])
@@ -415,12 +425,13 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
 
 def run(name, campaign, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-asteriks/output/'):
     log.info('Running {}, Campaign {}'.format(name, campaign))
-    output_dir = '{}{}/'.format(dir, name.replace(' ',''))
+    output_dir = '{}{}/'.format(dir, name.replace(' ', ''))
     log.debug('Output to {}'.format(output_dir))
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir)
     timetables = get_radec(name, campaign, aperture_radius, plot=True, img_dir=output_dir)
-    pickle.dump(timetables, open('{}{}_timetables.p'.format(output_dir, name.replace(' ','')), 'wb'))
+    pickle.dump(timetables, open('{}{}_timetables.p'.format(
+        output_dir, name.replace(' ', '')), 'wb'))
     mast = get_mast(name, campaign, timetables=timetables)
     # Make sure that MAST hasn't returned channels that aren't anywhere near
     # the asteroid!
@@ -431,47 +442,51 @@ def run(name, campaign, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-aster
     for o in ok_channels:
         ok |= np.asarray(mast.channel, dtype=int) == o
     mast = mast[ok]
-    mast.to_csv('{}{}_mast.csv'.format(output_dir, name.replace(' ','')), index=False)
+    mast.to_csv('{}{}_mast.csv'.format(output_dir, name.replace(' ', '')), index=False)
     ar, er, diff, ediff = make_arrays(timetables, mast, aperture_radius)
     if np.all(~np.isfinite(diff)):
-        diff[:,:,:,:] = 0
-        ediff[:,:,:,:] = 0
+        diff[:, :, :, :] = 0
+        ediff[:, :, :, :] = 0
 
     fig = plt.figure()
-    thumb = np.nanmedian(ar[:, :, :, 0] - diff[:,:,:,0], axis=0)
+    thumb = np.nanmedian(ar[:, :, :, 0] - diff[:, :, :, 0], axis=0)
     plt.imshow(thumb, origin='bottom', cmap='inferno')
     plt.axis('off')
-    fig.savefig('{}{}_thumb.png'.format(output_dir, name.replace(' ','')), bbox_inches='tight', dpi=150)
+    fig.savefig('{}{}_thumb.png'.format(output_dir, name.replace(' ', '')),
+                bbox_inches='tight', dpi=150)
 
     t = timetables[0].jd
     cadenceno = timetables[0].cadenceno
-    results = {'ar':ar, 'er':er, 'diff':diff, 'ediff':diff, 't':t, 'cadenceno':cadenceno}
-    pickle.dump(results, open('{}{}_tpfs.p'.format(output_dir, name.replace(' ','')), 'wb'))
+    results = {'ar': ar, 'er': er, 'diff': diff, 'ediff': diff, 't': t, 'cadenceno': cadenceno}
+    pickle.dump(results, open('{}{}_tpfs.p'.format(output_dir, name.replace(' ', '')), 'wb'))
 
-    ok = np.nansum(ar[:,:,:,0], axis=(1,2)) != 0
+    ok = np.nansum(ar[:, :, :, 0], axis=(1, 2)) != 0
     ok[np.where(ok == True)[0][0]:np.where(ok == True)[0][-1]] = True
-    movie(ar[ok,:,:,0] - diff[ok,:,:,0], out='{}{}.mp4'.format(output_dir, name.replace(' ','')),
-                   title='Motion Differenced Flux', vmax = np.nanmax(thumb), vmin=0, cmap='inferno', facecolor='grey')
-    movie(ar[ok,:,:,0], out='{}{}_RAW.mp4'.format(output_dir, name.replace(' ','')),
-                   title='TPF Flux', vmax = np.nanmax(thumb), vmin=0, cmap='inferno', facecolor='grey')
+    movie(ar[ok, :, :, 0] - diff[ok, :, :, 0], out='{}{}.mp4'.format(output_dir, name.replace(' ', '')),
+          title='Motion Differenced Flux', vmax=np.nanmax(thumb), vmin=0, cmap='inferno', facecolor='grey')
+    movie(ar[ok, :, :, 0], out='{}{}_RAW.mp4'.format(output_dir, name.replace(' ', '')),
+          title='TPF Flux', vmax=np.nanmax(thumb), vmin=0, cmap='inferno', facecolor='grey')
     percs = np.arange(80, 100, 2)[::-1]
-    npanels=len(percs)
+    npanels = len(percs)
     final_lcs = {}
     apers = np.zeros((ar.shape[1], ar.shape[2], len(percs)))
-    #Build a plot and lcs
+    # Build a plot and lcs
     with plt.style.context(('ggplot')):
         ts = np.asarray([timetables[i].jd for i in range(ar.shape[-1])])
-        xlims = [1e13,0]
-        ylims = [1e13,0]
+        xlims = [1e13, 0]
+        ylims = [1e13, 0]
         for idx, perc in enumerate(percs):
             aper = (thumb > np.nanpercentile(thumb, perc))
             fix_aperture(aper)
-            apers[:,:,idx] = aper
+            apers[:, :, idx] = aper
             npix = np.nansum(aper)
-            naper = np.asarray([np.nansum(np.isfinite(ar[:,:,:,i] - diff[:,:,:,i])*np.atleast_3d(aper).T, axis=(1,2)) == npix for i in range(ar.shape[-1])])
+            naper = np.asarray([np.nansum(np.isfinite(ar[:, :, :, i] - diff[:, :, :, i])
+                                          * np.atleast_3d(aper).T, axis=(1, 2)) == npix for i in range(ar.shape[-1])])
 
-            lcs = np.asarray([np.nansum((ar[:,:,:,i] - diff[:,:,:,i]) * np.atleast_3d(aper).T, axis=(1,2)) for i in range(ar.shape[-1])])
-            elcs = np.asarray([(1./(npix))*np.nansum((er[:,:,:,i]**2 + ediff[:,:,:,i]**2)**0.5, axis=(1,2)) for i in range(ar.shape[-1])])
+            lcs = np.asarray([np.nansum((ar[:, :, :, i] - diff[:, :, :, i]) *
+                                        np.atleast_3d(aper).T, axis=(1, 2)) for i in range(ar.shape[-1])])
+            elcs = np.asarray([(1./(npix))*np.nansum((er[:, :, :, i]**2 + ediff[:,
+                                                                                :, :, i]**2)**0.5, axis=(1, 2)) for i in range(ar.shape[-1])])
 
             lcs = np.asarray([np.interp(ts[0], t, lc) for t, lc in zip(ts, lcs)])
             lcs[~naper] = np.nan
@@ -491,16 +506,18 @@ def run(name, campaign, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-aster
             lagged -= median
             mask &= np.abs(lagged) < 3*std
 
-            t, lc, elc = t[mask][np.isfinite(lc[mask])], lc[mask][np.isfinite(lc[mask])], elc[mask][np.isfinite(lc[mask])]
+            t, lc, elc = t[mask][np.isfinite(lc[mask])], lc[mask][np.isfinite(
+                lc[mask])], elc[mask][np.isfinite(lc[mask])]
 
-            final_lcs[idx] = {'t':t, 'lc':lc, 'elc':elc, 'npix':npix, 'perc':perc}
+            final_lcs[idx] = {'t': t, 'lc': lc, 'elc': elc, 'npix': npix, 'perc': perc}
 
-        pickle.dump(final_lcs, open('{}{}_lcs.p'.format(output_dir, name.replace(' ','')), 'wb'))
-        pickle.dump(apers, open('{}{}_apers.p'.format(output_dir, name.replace(' ','')), 'wb'))
+        pickle.dump(final_lcs, open('{}{}_lcs.p'.format(output_dir, name.replace(' ', '')), 'wb'))
+        pickle.dump(apers, open('{}{}_apers.p'.format(output_dir, name.replace(' ', '')), 'wb'))
 
         fig = plt.figure(figsize=(12, 3))
         ax = plt.subplot2grid((1, 4), (0, 0), colspan=3)
-        ax.errorbar(final_lcs[2]['t'], final_lcs[2]['lc'], final_lcs[2]['elc'], label='N Pixels {} Perc {}'.format(final_lcs[2]['npix'], final_lcs[2]['perc']), marker='.', ls='', markersize=2)
+        ax.errorbar(final_lcs[2]['t'], final_lcs[2]['lc'], final_lcs[2]['elc'], label='N Pixels {} Perc {}'.format(
+            final_lcs[2]['npix'], final_lcs[2]['perc']), marker='.', ls='', markersize=2)
         ax.set_xlabel('Time (Julian Date)')
         ax.set_ylabel('Counts e$^-$/s')
         ax.set_title('{}'.format(name))
@@ -508,5 +525,6 @@ def run(name, campaign, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-aster
         ax = plt.subplot2grid((1, 4), (0, 3))
         ax.imshow(thumb, origin='bottom')
         ax.axis('off')
-        ax.contour(apers[:,:,2], colors='white', levels=[0,1])
-        fig.savefig('{}{}_lc.png'.format(output_dir, name.replace(' ','')), bbox_inches='tight', dpi=150)
+        ax.contour(apers[:, :, 2], colors='white', levels=[0, 1])
+        fig.savefig('{}{}_lc.png'.format(output_dir, name.replace(' ', '')),
+                    bbox_inches='tight', dpi=150)
