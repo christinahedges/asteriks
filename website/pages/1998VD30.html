@@ -8,7 +8,7 @@
     <meta name="description" content="">
     <meta name="author" content="">
 
-    <title>{{ header }}</title>
+    <title>1998 VD30</title>
 
     <!-- Bootstrap core CSS -->
     <link href="../vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
@@ -56,12 +56,12 @@
           <div id="carouselExampleControls" class="carousel slide" data-ride="carousel" data-interval="false">
             <div class="carousel-inner">
               <div class="carousel-item active">
-                <img class="d-block w-100" src="{{ img }}" alt="First slide">
+                <img class="d-block w-100" src="/Users/ch/K2/projects/hlsp-asteriks/output/1998VD30/1998VD30_lc.png" alt="First slide">
               </div>
               <div class="carousel-item">
                 <div align="center" class="embed-responsive embed-responsive-16by9">
                   <video autoplay loop class="embed-responsive-item">
-                      <source src="{{ mp4 }}" type="video/mp4">
+                      <source src="/Users/ch/K2/projects/hlsp-asteriks/output/1998VD30/1998VD30.mp4" type="video/mp4">
                   </video>
               </div>
               </div>
@@ -80,9 +80,9 @@
         </div>
         <!-- /.col-lg-8 -->
         <div class="col-lg-4">
-          <h1> {{ header }}</h1>
-          <p>{{ intro_string }}</p>
-          <center><button type="button" class="btn btn-primary" href="#demo" data-toggle="collapse">Citation for {{ header }}</button></center>
+          <h1> 1998 VD30</h1>
+          <p><br>1998 VD30 (a.k.a. Christina) is a moving object from K2 campaign 6. You can read more information about this object at the <b>JPL Small-Body Database Browser</b> <a href=https://ssd.jpl.nasa.gov/sbdb.cgi?sstr=1998%20VD30;old=0;orb=1;cov=0;log=0;cad=0#orb>here</a>.  Data was taken from February 2018 to May 2018. <br></br>You can download the light curve, target pixel file and vizualisations  of 1998 VD30 using the links below.</p>
+          <center><button type="button" class="btn btn-primary" href="#demo" data-toggle="collapse">Citation for 1998 VD30</button></center>
           <!-- <a class="btn btn-primary btn-lg" href="#">Download</a> -->
         </div>
         <!-- /.col-md-4 -->
@@ -101,7 +101,23 @@
 
       <div id="demo" class="collapse">
         <div style='padding: 10px;'></div>
-        <div class="well well-lg"> {{ citation  }} </div>
+        <div class="well well-lg"> <code><pre>@ARTICLE{2018MNRAS.476.2968H,
+                   author = {{Hedges}, C. and {Hodgkin}, S. and {Kennedy}, G.},
+                    title = "{Discovery of new dipper stars with K2: a window into the inner disc region of T Tauri stars}",
+                  journal = {\mnras},
+                archivePrefix = "arXiv",
+                   eprint = {1802.00409},
+                 primaryClass = "astro-ph.SR",
+                 keywords = {methods: data analysis, techniques: photometric, stars: variables: T Tauri, Herbig Ae/Be},
+                     year = 2018,
+                    month = may,
+                   volume = 476,
+                    pages = {2968-2998},
+                      doi = {10.1093/mnras/sty328},
+                   adsurl = {http://adsabs.harvard.edu/abs/2018MNRAS.476.2968H},
+                  adsnote = {Provided by the SAO/NASA Astrophysics Data System}
+                }</pre></code>
+             </div>
       </div>
 
 
@@ -114,7 +130,7 @@
               <p class="card-text">If only want the light curve of the object with the optimal aperture, download this product. This will give you one .fits file with a single light curve. </p>
             </div>
             <div class="card-footer", style="background-color: #CDACDA; border-top: 1px solid #9b59b6;">
-              <a href="#" class="btn btn-primary">Download .fits ({{ size1 }} Mb)</a>
+              <a href="#" class="btn btn-primary">Download .fits (2 Mb)</a>
             </div>
           </div>
         </div>
@@ -126,7 +142,7 @@
               <p class="card-text">If you to download the movie of this object as a vizualisation or would like to see if there are any background contaminants, click this button to download an .mp4 file. This movie is also loaded above, click the arrow on the image panel above.</p>
             </div>
             <div class="card-footer">
-              <a href="#" class="btn btn-primary">Download .mp4 ({{ size2 }} Mb)</a>
+              <a href="#" class="btn btn-primary">Download .mp4 (10 Mb)</a>
             </div>
           </div>
         </div>
@@ -138,7 +154,7 @@
               <p class="card-text">If you want to check out work, change the aperture size or look at the Target Pixel File for this object, download this file. This zip file contains all data we have on this object including a TPF, light curves with several aperture choices, figures and mp4 files. </p>
             </div>
             <div class="card-footer">
-              <a href="https://github.com/christinahedges/asteriks" class="btn btn-primary">Download .zip ({{ size3 }} Mb)</a>
+              <a href="https://github.com/christinahedges/asteriks" class="btn btn-primary">Download .zip (20 Mb)</a>
             </div>
           </div>
         </div>

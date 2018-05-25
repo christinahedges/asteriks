@@ -64,7 +64,7 @@ def check_cache(cache_lim=2):
     '''
     cache_size = get_dir_size(get_cache_dir())/1E9
     if cache_size >= cache_lim:
-        logging.warning('Cache hit limit of {} gb. Clearing.'.format(cachelim))
+        log.warning('Cache hit limit of {} gb. Clearing.'.format(cachelim))
         clear_download_cache()
 
 
@@ -224,3 +224,10 @@ def fix_aperture(aper):
             okaper[idx, jdx] |= np.any(
                 np.any([(aper[idx][jdx + 1]), (aper[idx][jdx - 1]), (aper[idx - 1][jdx]), (aper[idx + 1][jdx])]))
     aper *= okaper
+    x, y = np.where(aper == True)
+    n = np.shape(aper)[0]/2
+    ok = ((x - n)**2 + (y - n)**2)**0.5 < 4
+    x = x[ok]
+    y = y[ok]
+    aper *= np.zeros(aper.shape, dtype=bool)
+    aper[x, y] = True

@@ -423,13 +423,141 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
     return ar, er, diff_ar, diff_er
 
 
+def build_products(name, dir='/Users/ch/K2/projects/hlsp-asteriks/output/', movie=False):
+    output_dir = '{}{}/'.format(dir, name.replace(' ', ''))
+    timetables = pickle.load(open('{}{}_timetables.p'.format(
+        output_dir, name.replace(' ', '')), 'rb'))
+    r = pickle.load(open('{}{}_tpfs.p'.format(output_dir, name.replace(' ', '')), 'rb'))
+    ar, er, diff, ediff = r['ar'], r['er'], r['diff'], r['ediff']
+    thumb = np.nanmedian(ar[:, :, :, 0] - diff[:, :, :, 0], axis=0)
+
+    if movie:
+        with plt.style.context(('ggplot')):
+            ok = np.nansum(ar[:, :, :, 0], axis=(1, 2)) != 0
+            ok[np.where(ok == True)[0][0]:np.where(ok == True)[0][-1]] = True
+            two_panel_movie(ar[ok, :, :, 0], ar[ok, :, :, 0] - diff[ok, :, :, 0],
+                            title='', out='{}{}.mp4'.format(output_dir, name.replace(' ', '')), scale='linear', vmin=0,
+                            vmax=np.nanmax(thumb))
+
+    percs = np.arange(80, 100, 2)[::-1]
+    final_lcs = {}
+    apers = np.zeros((ar.shape[1], ar.shape[2], len(percs)))
+    ts = np.asarray([timetables[i].jd for i in range(ar.shape[-1])])
+
+    apermean = np.zeros(len(percs))
+
+    apernpoints = np.zeros(len(percs))
+    for idx, perc in enumerate(percs):
+        aper = (thumb > np.nanpercentile(thumb, perc))
+        fix_aperture(aper)
+        apers[:, :, idx] = aper
+        npix = np.nansum(aper)
+        naper = np.asarray([np.nansum(np.isfinite(ar[:, :, :, i] - diff[:, :, :, i])
+                                      * np.atleast_3d(aper).T, axis=(1, 2)) == npix for i in range(ar.shape[-1])])
+
+        # Build all light curves
+        lcs = np.asarray([np.nansum((ar[:, :, :, i] - diff[:, :, :, i]) *
+                                    np.atleast_3d(aper).T, axis=(1, 2)) for i in range(ar.shape[-1])])
+        elcs = np.asarray([(1./(npix))*np.nansum((er[:, :, :, i]**2 + ediff[:,
+                                                                            :, :, i]**2)**0.5, axis=(1, 2)) for i in range(ar.shape[-1])])
+
+        # Find the leading/ lagging light curves
+        lead = np.copy(lcs[1:])
+        # Weighting array
+        w = np.copy(lead)
+        w[w != 0] = 1
+        lead[lead == 0] = np.nan
+        lead = np.nansum(lead, axis=0)/np.nansum(w, axis=0)
+        # We should only use leading/lagging where there are at least 50% of data points
+        ok = np.nansum(w, axis=0) > np.shape(lcs[1:])[0]/2
+        ok = np.where(ok == True)[0]
+
+        # Remove any points where the leading/lagging apertures are significantly not flat.
+        bad = []
+        for jdx in ok:
+            x, y, e = ts[1:, jdx], lcs[1:, jdx], elcs[1:, jdx]
+            p = (y != 0) & (e != 0) & (np.isfinite(y)) & (
+                np.isfinite(e)) & (np.abs(y) < 3*np.nanstd(y))
+            x, y, e = x[p], y[p], e[p]
+            if len(y) <= 1:
+                bad.append(jdx)
+                continue
+            z = (y) / e
+            chi2 = np.sum(z ** 2)
+            chi2dof = chi2 / (len(y) - 1)
+            sigma = np.sqrt(2. / (len(y) - 1))
+            nsig = (chi2dof - 1) / sigma
+            if nsig > 3:
+                bad.append(jdx)
+        bad = np.asarray(bad)
+        ok = np.asarray(list(set(list(ok)) - set(list(bad))))
+
+        # Interpolate the remaining apertures onto the same time frame as the object
+        interp_lcs = np.asarray([np.interp(ts[0, ok], t, lc)
+                                 for t, lc in zip(ts[1:, ok], lcs[1:, ok])])
+
+        # Check if the mean is significantly far from zero.
+        mean = np.nanmean(interp_lcs, axis=0)
+        emean = (1./len(elcs[1:, ok])) * np.nansum(elcs[1:, ok]**2, axis=0)**0.5
+        ok = ok[np.abs(mean)/emean < 3]
+
+        apermean[idx] = np.nanmedian(lcs[0, ok])
+        apernpoints[idx] = len(lcs[0, ok])
+        final_lcs[idx] = {'t': ts[0, ok], 'lc': lcs[0, ok],
+                          'elc': elcs[0, ok], 'npix': npix, 'perc': perc}
+
+    pickle.dump(final_lcs, open('{}{}_lcs.p'.format(output_dir, name.replace(' ', '')), 'wb'))
+    pickle.dump(apers, open('{}{}_apers.p'.format(output_dir, name.replace(' ', '')), 'wb'))
+
+    best_mean = np.where(percs == percs[np.gradient(apermean/apermean[0])
+                                        < np.median(np.gradient(apermean/apermean[0]))][0])[0][0]
+    # Shouldn't waste all the data points...
+    npoints = np.where(percs == np.min(percs[apernpoints/apernpoints[0] > 0.7]))[0][0]
+    best = np.min([best_mean, npoints])
+
+    with plt.style.context(('ggplot')):
+        fig = plt.figure(figsize=(13.33, 7.5))
+        ax = plt.subplot2grid((6, 3), (1, 0), colspan=2, rowspan=4)
+        plt.scatter(percs, apermean, c='#9b59b6')
+        plt.scatter(percs[best], apermean[best], c='#16a085')
+        plt.axvline(percs[best], c='#16a085', ls='--', zorder=-1)
+        plt.text(percs[best]*1.005, apermean[best]*1.005, 'Best Aperture')
+
+        plt.title('Mean Flux in Aperture')
+        plt.xlabel('Aperture Percentile (%)', fontsize=13)
+        plt.ylabel('Mean Light Curve Flux (Counts) [e$^-$/s]', fontsize=13)
+        plt.subplots_adjust(left=0.16)
+        ax = plt.subplot2grid((6, 3), (1, 2), rowspan=4)
+        plt.imshow(thumb, origin='bottom')
+        plt.axis('off')
+        plt.contour(apers[:, :, best], colors='white', levels=[0, 1])
+
+        fig.savefig('{}{}_aperture_selection.png'.format(
+            output_dir, name.replace(' ', '')), dpi=150)
+
+        fig, ax = plt.subplots(figsize=(13.33, 7.5))
+        ax.errorbar(final_lcs[best]['t'], final_lcs[best]['lc'], final_lcs[best]['elc'], label='N Pixels {} Perc {}'.format(
+            final_lcs[best]['npix'], final_lcs[best]['perc']), marker='.', ls='', markersize=2, color='#9b59b6')
+        ax.set_xlabel('Time (Julian Date)', fontsize=16)
+        ax.set_ylabel('Flux [e$^-$/s]', fontsize=16)
+        ax.set_title('{}'.format(name), fontsize=20)
+        plt.subplots_adjust(left=0.16)
+        fig.savefig('{}{}_lc.png'.format(output_dir, name.replace(' ', '')), dpi=150)
+
+
+def build_fits(name, dir='/Users/ch/K2/projects/hlsp-asteriks/output/'):
+    '''Generate fits files and zip files for MAST delivery.
+    '''
+    pass
+
+
 def run(name, campaign, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-asteriks/output/'):
     log.info('Running {}, Campaign {}'.format(name, campaign))
     output_dir = '{}{}/'.format(dir, name.replace(' ', ''))
     log.debug('Output to {}'.format(output_dir))
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir)
-    timetables = get_radec(name, campaign, aperture_radius, plot=True, img_dir=output_dir)
+    timetables = get_radec(name, campaign, aperture_radius, plot=False, img_dir=output_dir)
     pickle.dump(timetables, open('{}{}_timetables.p'.format(
         output_dir, name.replace(' ', '')), 'wb'))
     mast = get_mast(name, campaign, timetables=timetables)
@@ -447,84 +575,8 @@ def run(name, campaign, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-aster
     if np.all(~np.isfinite(diff)):
         diff[:, :, :, :] = 0
         ediff[:, :, :, :] = 0
-
-    fig = plt.figure()
-    thumb = np.nanmedian(ar[:, :, :, 0] - diff[:, :, :, 0], axis=0)
-    plt.imshow(thumb, origin='bottom', cmap='inferno')
-    plt.axis('off')
-    fig.savefig('{}{}_thumb.png'.format(output_dir, name.replace(' ', '')),
-                bbox_inches='tight', dpi=150)
-
     t = timetables[0].jd
     cadenceno = timetables[0].cadenceno
-    results = {'ar': ar, 'er': er, 'diff': diff, 'ediff': diff, 't': t, 'cadenceno': cadenceno}
+    results = {'ar': ar, 'er': er, 'diff': diff, 'ediff': ediff, 't': t, 'cadenceno': cadenceno}
     pickle.dump(results, open('{}{}_tpfs.p'.format(output_dir, name.replace(' ', '')), 'wb'))
-
-    ok = np.nansum(ar[:, :, :, 0], axis=(1, 2)) != 0
-    ok[np.where(ok == True)[0][0]:np.where(ok == True)[0][-1]] = True
-    movie(ar[ok, :, :, 0] - diff[ok, :, :, 0], out='{}{}.mp4'.format(output_dir, name.replace(' ', '')),
-          title='Motion Differenced Flux', vmax=np.nanmax(thumb), vmin=0, cmap='inferno', facecolor='grey')
-    movie(ar[ok, :, :, 0], out='{}{}_RAW.mp4'.format(output_dir, name.replace(' ', '')),
-          title='TPF Flux', vmax=np.nanmax(thumb), vmin=0, cmap='inferno', facecolor='grey')
-    percs = np.arange(80, 100, 2)[::-1]
-    npanels = len(percs)
-    final_lcs = {}
-    apers = np.zeros((ar.shape[1], ar.shape[2], len(percs)))
-    # Build a plot and lcs
-    with plt.style.context(('ggplot')):
-        ts = np.asarray([timetables[i].jd for i in range(ar.shape[-1])])
-        xlims = [1e13, 0]
-        ylims = [1e13, 0]
-        for idx, perc in enumerate(percs):
-            aper = (thumb > np.nanpercentile(thumb, perc))
-            fix_aperture(aper)
-            apers[:, :, idx] = aper
-            npix = np.nansum(aper)
-            naper = np.asarray([np.nansum(np.isfinite(ar[:, :, :, i] - diff[:, :, :, i])
-                                          * np.atleast_3d(aper).T, axis=(1, 2)) == npix for i in range(ar.shape[-1])])
-
-            lcs = np.asarray([np.nansum((ar[:, :, :, i] - diff[:, :, :, i]) *
-                                        np.atleast_3d(aper).T, axis=(1, 2)) for i in range(ar.shape[-1])])
-            elcs = np.asarray([(1./(npix))*np.nansum((er[:, :, :, i]**2 + ediff[:,
-                                                                                :, :, i]**2)**0.5, axis=(1, 2)) for i in range(ar.shape[-1])])
-
-            lcs = np.asarray([np.interp(ts[0], t, lc) for t, lc in zip(ts, lcs)])
-            lcs[~naper] = np.nan
-            elcs[~naper] = np.nan
-
-            t = ts[0]
-            lc = lcs[0]
-            elc = elcs[0]
-
-            lagged = np.nanstd(lcs[1:], axis=0)
-            _, median, std = sigma_clipped_stats(lagged[np.isfinite(lagged)], sigma=5, iters=3)
-            lagged -= median
-            mask = np.abs(lagged) < 3*std
-
-            lagged = np.nanmedian(lcs[1:], axis=0)
-            _, median, std = sigma_clipped_stats(lagged[np.isfinite(lagged)], sigma=5, iters=3)
-            lagged -= median
-            mask &= np.abs(lagged) < 3*std
-
-            t, lc, elc = t[mask][np.isfinite(lc[mask])], lc[mask][np.isfinite(
-                lc[mask])], elc[mask][np.isfinite(lc[mask])]
-
-            final_lcs[idx] = {'t': t, 'lc': lc, 'elc': elc, 'npix': npix, 'perc': perc}
-
-        pickle.dump(final_lcs, open('{}{}_lcs.p'.format(output_dir, name.replace(' ', '')), 'wb'))
-        pickle.dump(apers, open('{}{}_apers.p'.format(output_dir, name.replace(' ', '')), 'wb'))
-
-        fig = plt.figure(figsize=(12, 3))
-        ax = plt.subplot2grid((1, 4), (0, 0), colspan=3)
-        ax.errorbar(final_lcs[2]['t'], final_lcs[2]['lc'], final_lcs[2]['elc'], label='N Pixels {} Perc {}'.format(
-            final_lcs[2]['npix'], final_lcs[2]['perc']), marker='.', ls='', markersize=2)
-        ax.set_xlabel('Time (Julian Date)')
-        ax.set_ylabel('Counts e$^-$/s')
-        ax.set_title('{}'.format(name))
-        ax.legend()
-        ax = plt.subplot2grid((1, 4), (0, 3))
-        ax.imshow(thumb, origin='bottom')
-        ax.axis('off')
-        ax.contour(apers[:, :, 2], colors='white', levels=[0, 1])
-        fig.savefig('{}{}_lc.png'.format(output_dir, name.replace(' ', '')),
-                    bbox_inches='tight', dpi=150)
+    build_products(name, dir, True)

@@ -54,10 +54,18 @@ h2 {
     background-color: #9b59b6;
     border-color: #9b59b6;
 }
-.btn-primary:hover, .btn-primary:focus, .btn-primary:active, .btn-primary.active, .open>.dropdown-toggle.btn-primary {
+
+.btn-primary:hover {
     color: #fff;
     background-color: #8e44ad;
     border-color: #8e44ad;
+}
+
+.btn-primary.active.focus, .btn-primary.active:focus, .btn-primary.active:hover, .btn-primary:active.focus, .btn-primary:active:focus, .btn-primary:active:hover, .open>.dropdown-toggle.btn-primary.focus, .open>.dropdown-toggle.btn-primary:focus, .open>.dropdown-toggle.btn-primary:hover
+{
+color: #fff;
+background-color: #8e44ad!important;
+border-color: #8e44ad!important;
 }
 
 .bg-dark {
@@ -88,6 +96,11 @@ h2 {
     border-top: 1px solid #bdc3c7;
 }
 
+.card-body {
+    padding: .75rem 1.25rem 1.25rem 1.5rem;
+}
+
+
 .well {
     min-height: 20px;
     padding: 19px;
@@ -97,4 +110,12 @@ h2 {
     border-radius: 4px;
     -webkit-box-shadow: inset 0 1px 1px rgba(0,0,0,.05);
     box-shadow: inset 0 1px 1px rgba(0,0,0,.05);
+}
+
+.carousel-control-prev-icon {
+ background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='#8e44ad' viewBox='0 0 8 8'%3E%3Cpath d='M5.25 0l-4 4 4 4 1.5-1.5-2.5-2.5 2.5-2.5-1.5-1.5z'/%3E%3C/svg%3E") !important;
+}
+
+.carousel-control-next-icon {
+  background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='#8e44ad' viewBox='0 0 8 8'%3E%3Cpath d='M2.75 0l-1.5 1.5 2.5 2.5-2.5 2.5 1.5 1.5 4-4-4-4z'/%3E%3C/svg%3E") !important;
 }
