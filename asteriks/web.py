@@ -73,9 +73,9 @@ def create_asteroid_page_html(name, dir):
     campaign = np.asarray(mov[mov.clean_name == name].campaign)[0]
     lcs = pickle.load(open('{0}{1}/{1}_lcs.p'.format(dir, name.replace(' ', '')), 'rb'))
     sd = (Time(lcs[0]['t'][0], format='jd').isot)
-    start_date = datetime.strptime(sd, '%Y-%m-%dT%H:%M:%S.%f').strftime('%B %Y')
-    ed = (Time(lcs[0]['t'][0], format='jd').isot)
-    end_date = datetime.strptime(ed, '%Y-%m-%dT%H:%M:%S.%f').strftime('%B %Y')
+    start_date = datetime.strptime(sd, '%Y-%m-%dT%H:%M:%S.%f').strftime('%d %B %Y')
+    ed = (Time(lcs[0]['t'][-1], format='jd').isot)
+    end_date = datetime.strptime(ed, '%Y-%m-%dT%H:%M:%S.%f').strftime('%d %B %Y')
     intro_string = ("<br>{0}{4} is a moving object from K2 campaign {1}. "
                     "You can read more information about this object at the <b>JPL Small-Body Database Browser</b> <a href={5}>here</a>. "
                     " Data was taken from {2} to {3}. "
