@@ -199,8 +199,9 @@ def get_radec(name, campaign=None, nlagged=0, aperture_radius=3, plot=False,
         campaign = get_campaign_number(name)
 
     # Get the ephemeris data from JPL
+    altname = find_alternate_names_using_CAF(name)[0]
     with silence():
-        df = K2ephem.get_ephemeris_dataframe(name, campaign, campaign, step_size=1./(8))
+        df = K2ephem.get_ephemeris_dataframe(altname, campaign, campaign, step_size=1./(8))
 
     # Interpolate to the time values for the campaign.
     dftimes = [t[0:23] for t in np.asarray(df.index, dtype=str)]
@@ -551,12 +552,14 @@ def build_fits(name, dir='/Users/ch/K2/projects/hlsp-asteriks/output/'):
     pass
 
 
-def run(name, campaign, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-asteriks/output/'):
+def run(name, campaign=None, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-asteriks/output/'):
     log.info('Running {}, Campaign {}'.format(name, campaign))
     output_dir = '{}{}/'.format(dir, name.replace(' ', ''))
     log.debug('Output to {}'.format(output_dir))
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir)
+    if campaign is None:
+        mast, campaign = find_mast_files_using_CAF(name)
     timetables = get_radec(name, campaign, aperture_radius, plot=False, img_dir=output_dir)
     pickle.dump(timetables, open('{}{}_timetables.p'.format(
         output_dir, name.replace(' ', '')), 'wb'))
@@ -580,3 +583,5 @@ def run(name, campaign, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-aster
     results = {'ar': ar, 'er': er, 'diff': diff, 'ediff': ediff, 't': t, 'cadenceno': cadenceno}
     pickle.dump(results, open('{}{}_tpfs.p'.format(output_dir, name.replace(' ', '')), 'wb'))
     build_products(name, dir, True)
+
+    create_asteroid_page_html(name, dir)

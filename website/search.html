@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<script>
+function myFunction() {
+    // Declare variables
+    var input, filter, ul, li, a, i;
+    input = document.getElementById('myInput');
+    filter = input.value.toUpperCase();
+    ul = document.getElementById("myUL");
+    li = ul.getElementsByTagName('li');
+
+    // Loop through all list items, and hide those who don't match the search query
+    for (i = 0; i < li.length; i++) {
+        a = li[i].getElementsByTagName("a")[0];
+        if (a.innerHTML.toUpperCase().indexOf(filter) > -1) {
+            li[i].style.display = "";
+        } else {
+            li[i].style.display = "none";
+        }
+    }
+}
+</script>
+<html lang="en">
+
+  <head>
+
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <title>Search K2 Moving Bodies</title>
+
+    <!-- Bootstrap core CSS -->
+    <link href="/Users/ch/K2/projects/asteriks/website/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Custom styles for this template -->
+    <link href="/Users/ch/K2/projects/asteriks/website/css/small-business.css" rel="stylesheet">
+
+  </head>
+
+  <body>
+
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+      <div class="container">
+        <a class="navbar-brand" href="#">K2MovingBodies</a>
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarResponsive" aria-controls="navbarResponsive" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarResponsive">
+          <ul class="navbar-nav ml-auto">
+            <li class="nav-item active">
+              <a class="nav-link" href="/Users/ch/K2/projects/asteriks/website/index.html">Home
+                <span class="sr-only">(current)</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#">About</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="">Search</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#">Contact</a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Page Content -->
+    <div class="container">
+      <div class="col-xs-12" style="height:40px;"></div>
+      <h1> Search K2 Moving Bodies</h1>
+      <div class="col-xs-12" style="height:20px;"></div>
+      <input type="text" id="myInput" onkeyup="myFunction()" placeholder="Search for moving bodies..">
+      <div class="col-xs-12" style="height:10px;"></div>
+      <div class="pre-scrollable" >
+        <ul id="myUL">
+          
+            <li><a href="/Users/ch/K2/projects/asteriks/website/pages/129602/129602.html">129602</a></li>
+          
+            <li><a href="/Users/ch/K2/projects/asteriks/website/pages/15626/15626.html">15626</a></li>
+          
+            <li><a href="/Users/ch/K2/projects/asteriks/website/pages/12238/12238.html">12238</a></li>
+          
+            <li><a href="/Users/ch/K2/projects/asteriks/website/pages/13185/13185.html">13185</a></li>
+          
+            <li><a href="/Users/ch/K2/projects/asteriks/website/pages/8550/8550.html">8550</a></li>
+          
+            <li><a href="/Users/ch/K2/projects/asteriks/website/pages/12974/12974.html">12974</a></li>
+          
+            <li><a href="/Users/ch/K2/projects/asteriks/website/pages/113224/113224.html">113224</a></li>
+          
+            <li><a href="/Users/ch/K2/projects/asteriks/website/pages/13379/13379.html">13379</a></li>
+          
+        </ul>
+      </div>
+    </div>
+    <!-- /.container -->
+
+    <!-- Footer -->
+    <!--
+    <footer class="py-5 bg-dark">
+      <div class="container">
+      </div>
+    </footer> -->
+
+    <!-- Bootstrap core JavaScript -->
+    <script src="/Users/ch/K2/projects/asteriks/website/vendor/jquery/jquery.min.js"></script>
+    <script src="/Users/ch/K2/projects/asteriks/website/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+
+  </body>
+
+</html>
