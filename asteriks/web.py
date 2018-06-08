@@ -64,12 +64,13 @@ def create_asteroid_page_html(name, dir):
     mp4 = '{0}{1}/{1}.mp4'.format(dir, name.replace(' ', ''))
     shutil.copyfile(img, '{}/{}_lc.png'.format(page_dir, name.replace(' ', '')))
     shutil.copyfile(mp4, '{}/{}.mp4'.format(page_dir, name.replace(' ', '')))
+    fitsfile = glob('{0}{1}/*.fits'.format(dir, name.replace(' ', '')))[0]
+    shutil.copyfile(fitsfile, '{}/{}'.format(page_dir, fitsfile.split('/')[-1]))
     img = '{1}_lc.png'.format(dir, name.replace(' ', ''))
     mp4 = '{1}.mp4'.format(dir, name.replace(' ', ''))
 
-    size1 = 2
-    size2 = 10
-    size3 = 20
+    size1 = '{:.2}'.format(os.path.getsize(fitsfile)/1e6)
+    size2 = '{:.2}'.format(os.path.getsize('{}/{}.mp4'.format(page_dir, name.replace(' ', '')))/1e6)
     campaign = np.asarray(mov[mov.clean_name == name].campaign)[0]
     lcs = pickle.load(open('{0}{1}/{1}_lcs.p'.format(dir, name.replace(' ', '')), 'rb'))
     sd = (Time(lcs[0]['t'][0], format='jd').isot)
@@ -82,15 +83,14 @@ def create_asteroid_page_html(name, dir):
                     "<br></br>You can download the light curve, target pixel file and vizualisations "
                     " of {0} using the links below."
                     "".format(name, campaign, start_date, end_date, aka, jpllink))
-    urls = ['http://example.com/1', 'http://example.com/2', 'http://example.com/3']
     context = {
         'index_link': index_link,
         'search_link': search_link,
         'header': header,
-        'urls': urls,
         'size1': size1,
         'size2': size2,
-        'size3': size3,
+        'download1': fitsfile.split('/')[-1],
+        'download2': '{}.mp4'.format(name.replace(' ', '')),
         'mp4': mp4,
         'intro_string': intro_string,
         'img': img,

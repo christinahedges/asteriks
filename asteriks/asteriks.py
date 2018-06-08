@@ -568,7 +568,7 @@ def build_products(name, campaign, dir='/Users/ch/K2/projects/hlsp-asteriks/outp
         hdus.append(hdu)
     hdul = fits.HDUList(hdus)
     hdul.writeto(
-        '{0}{1}/hlsp_k2movingbodies_k2_lightcurve_{1}_c{2:02}_v1.fits'.format(dir, name, campaign))
+        '{0}{1}/hlsp_k2movingbodies_k2_lightcurve_{1}_c{2:02}_v1.fits'.format(dir, name, campaign), overwrite=True)
     with plt.style.context(('ggplot')):
         fig = plt.figure(figsize=(13.33, 7.5))
         ax = plt.subplot2grid((6, 3), (1, 0), colspan=2, rowspan=4)
