@@ -12,9 +12,10 @@ from astropy.coordinates import SkyCoord
 from astropy.time import Time
 import astropy.units as u
 from astropy.stats import sigma_clipped_stats
+from astropy.io import fits
+from astropy.time import Time
 
 from scipy.interpolate import interp1d
-
 
 from .utils import *
 from .plotting import *
@@ -424,7 +425,7 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
     return ar, er, diff_ar, diff_er
 
 
-def build_products(name, dir='/Users/ch/K2/projects/hlsp-asteriks/output/', movie=False):
+def build_products(name, campaign, dir='/Users/ch/K2/projects/hlsp-asteriks/output/', movie=False):
     output_dir = '{}{}/'.format(dir, name.replace(' ', ''))
     timetables = pickle.load(open('{}{}_timetables.p'.format(
         output_dir, name.replace(' ', '')), 'rb'))
@@ -507,15 +508,67 @@ def build_products(name, dir='/Users/ch/K2/projects/hlsp-asteriks/output/', movi
         final_lcs[idx] = {'t': ts[0, ok], 'lc': lcs[0, ok],
                           'elc': elcs[0, ok], 'npix': npix, 'perc': perc}
 
-    pickle.dump(final_lcs, open('{}{}_lcs.p'.format(output_dir, name.replace(' ', '')), 'wb'))
-    pickle.dump(apers, open('{}{}_apers.p'.format(output_dir, name.replace(' ', '')), 'wb'))
-
     best_mean = np.where(percs == percs[np.gradient(apermean/apermean[0])
                                         < np.median(np.gradient(apermean/apermean[0]))][0])[0][0]
     # Shouldn't waste all the data points...
     npoints = np.where(percs == np.min(percs[apernpoints/apernpoints[0] > 0.7]))[0][0]
     best = np.min([best_mean, npoints])
+    final_lcs['BEST'] = {'t': ts[best, ok], 'lc': lcs[best, ok],
+                         'elc': elcs[best, ok], 'npix': npix, 'perc': perc}
+    pickle.dump(final_lcs, open('{}{}_lcs.p'.format(output_dir, name.replace(' ', '')), 'wb'))
+    pickle.dump(apers, open('{}{}_apers.p'.format(output_dir, name.replace(' ', '')), 'wb'))
 
+    ra_ar = np.interp(final_lcs[0]['t'], timetables[0].jd, timetables[0].ra)
+    dec_ar = np.interp(final_lcs[0]['t'], timetables[0].jd, timetables[0].dec)
+
+    i = 'BEST'
+    hdr = fits.Header()
+    hdr['ORIGIN'] = 'NASA/Ames'
+    hdr['DATE'] = Time.now().isot
+    hdr['CREATOR'] = 'asteriks'
+    hdr['TELESCOP'] = 'Kepler'
+    hdr['INSTRUME'] = 'Kepler Photometer'
+    hdr['OBJECT'] = '{}'.format(name)
+    hdr['HLSPNAME'] = 'K2MovingBodies'
+    hdr['HLSPLEAD'] = 'Kepler/K2 GO Office'
+    hdr['EXPSTART'] = Time(final_lcs[i]['t'][0], format='jd').isot
+    hdr['EXPEND'] = Time(final_lcs[i]['t'][-1], format='jd').isot
+
+    primary_hdu = fits.PrimaryHDU(header=hdr)
+
+    hdus = [primary_hdu]
+    cols = []
+    cols.append(fits.Column(name='TIME', array=(final_lcs[i]['t']), format='D', unit='JD'))
+    cols.append(fits.Column(name='FLUX', array=(final_lcs[i]['lc']), format='E', unit='e-/s'))
+    cols.append(fits.Column(name='FLUX_ERR', array=(final_lcs[i]['elc']), format='E', unit='e-/s'))
+    cols.append(fits.Column(name='RA_OBJ', array=ra_ar, format='E', unit='deg'))
+    cols.append(fits.Column(name='DEC_OBJ', array=dec_ar, format='E', unit='deg'))
+
+    cols = fits.ColDefs(cols)
+    hdu = fits.BinTableHDU.from_columns(cols)
+    hdu.header['EXTNAME'] = 'BESTAPER'
+    hdu.header['PERC'] = '{}'.format(final_lcs[i]['perc'])
+    hdu.header['NPIX'] = '{}'.format(final_lcs[i]['npix'])
+    hdus.append(hdu)
+
+    for i in range(list(final_lcs.keys())[-2]):
+        cols = []
+        cols.append(fits.Column(name='TIME', array=(final_lcs[i]['t']), format='D', unit='JD'))
+        cols.append(fits.Column(name='FLUX', array=(final_lcs[i]['lc']), format='E', unit='e-/s'))
+        cols.append(fits.Column(name='FLUX_ERR', array=(
+            final_lcs[i]['elc']), format='E', unit='e-/s'))
+        cols.append(fits.Column(name='RA_OBJ', array=ra_ar, format='E', unit='deg'))
+        cols.append(fits.Column(name='DEC_OBJ', array=dec_ar, format='E', unit='deg'))
+
+        cols = fits.ColDefs(cols)
+        hdu = fits.BinTableHDU.from_columns(cols)
+        hdu.header['EXTNAME'] = 'PERC{}'.format(final_lcs[i]['perc'])
+        hdu.header['PERC'] = '{}'.format(final_lcs[i]['perc'])
+        hdu.header['NPIX'] = '{}'.format(final_lcs[i]['npix'])
+        hdus.append(hdu)
+    hdul = fits.HDUList(hdus)
+    hdul.writeto(
+        '{0}{1}/hlsp_k2movingbodies_k2_lightcurve_{1}_c{2:02}_v1.fits'.format(dir, name, campaign))
     with plt.style.context(('ggplot')):
         fig = plt.figure(figsize=(13.33, 7.5))
         ax = plt.subplot2grid((6, 3), (1, 0), colspan=2, rowspan=4)
@@ -544,12 +597,6 @@ def build_products(name, dir='/Users/ch/K2/projects/hlsp-asteriks/output/', movi
         ax.set_title('{}'.format(name), fontsize=20)
         plt.subplots_adjust(left=0.16)
         fig.savefig('{}{}_lc.png'.format(output_dir, name.replace(' ', '')), dpi=150)
-
-
-def build_fits(name, dir='/Users/ch/K2/projects/hlsp-asteriks/output/'):
-    '''Generate fits files and zip files for MAST delivery.
-    '''
-    pass
 
 
 def run(name, campaign=None, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-asteriks/output/'):
@@ -582,6 +629,5 @@ def run(name, campaign=None, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-
     cadenceno = timetables[0].cadenceno
     results = {'ar': ar, 'er': er, 'diff': diff, 'ediff': ediff, 't': t, 'cadenceno': cadenceno}
     pickle.dump(results, open('{}{}_tpfs.p'.format(output_dir, name.replace(' ', '')), 'wb'))
-    build_products(name, dir, True)
-
+    build_products(name, campaign, dir, True)
     create_asteroid_page_html(name, dir)
