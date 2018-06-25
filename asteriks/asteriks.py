@@ -1,5 +1,4 @@
 "Makes light curves of moving objects in K2 data"
-import logging
 import numpy as np
 import pandas as pd
 import K2ephem
@@ -9,9 +8,7 @@ import pickle
 import os
 
 from astropy.coordinates import SkyCoord
-from astropy.time import Time
 import astropy.units as u
-from astropy.stats import sigma_clipped_stats
 from astropy.io import fits
 from astropy.time import Time
 
@@ -21,9 +18,6 @@ from .utils import *
 from .plotting import *
 from .query import *
 from .web import *
-
-from time import time
-from . import PACKAGEDIR
 
 
 class WCSFailure(Exception):
@@ -340,10 +334,8 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
     er = np.zeros((len(objs[0]), aper.shape[0], aper.shape[1], len(objs))) * np.nan
     diff_ar = np.zeros((len(objs[0]), aper.shape[0], aper.shape[1], len(objs))) * np.nan
     diff_er = np.zeros((len(objs[0]), aper.shape[0], aper.shape[1], len(objs))) * np.nan
-    difflags = np.zeros(len(objs[0]))
     log.debug('Arrays sized {}'.format(ar.shape))
 
-    mastcoord = SkyCoord(mast.RA, mast.Dec, unit=(u.deg, u.deg))
     current_channel = -1
 
     tablecoords = [None] * len(objs)
@@ -384,7 +376,8 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
         r, d = np.asarray(wcs.wcs_pix2world(column.ravel(), row.ravel(), 1))
         coords = SkyCoord(r, d, unit=(u.deg, u.deg))
         r, d = coords.ra, coords.dec
-
+        import pdb
+        pdb.set_trace()
         for idx, obj in enumerate(objs):
             tablecoord = tablecoords[idx]
             ok = np.zeros(len(tablecoord)).astype(bool)
@@ -454,8 +447,6 @@ def build_products(name, campaign, dir='/Users/ch/K2/projects/hlsp-asteriks/outp
         fix_aperture(aper)
         apers[:, :, idx] = aper
         npix = np.nansum(aper)
-        naper = np.asarray([np.nansum(np.isfinite(ar[:, :, :, i] - diff[:, :, :, i])
-                                      * np.atleast_3d(aper).T, axis=(1, 2)) == npix for i in range(ar.shape[-1])])
 
         # Build all light curves
         lcs = np.asarray([np.nansum((ar[:, :, :, i] - diff[:, :, :, i]) *
