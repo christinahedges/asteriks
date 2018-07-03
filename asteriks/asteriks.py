@@ -542,7 +542,7 @@ def build_products(name, campaign, dir, movie=False, lead_lag_correction=True):
         apernpoints[idx] = len(lcs[0, ok])
         final_lcs[idx] = {'t': ts[0, ok], 'lc': lcs[0, ok],
                           'elc': elcs[0, ok], 'npix': npix, 'perc': perc}
-
+    print(apermean)
     best_mean = np.where(percs == percs[np.gradient(apermean/apermean[0])
                                         < np.median(np.gradient(apermean/apermean[0]))][0])[0][0]
     # Shouldn't waste all the data points...
