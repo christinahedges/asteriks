@@ -527,7 +527,7 @@ def build_products(name, campaign, dir, movie=False, lead_lag_correction=True):
             bad = np.asarray(bad)
             ok = np.asarray(list(set(list(ok)) - set(list(bad))))
         else:
-            ok = np.arange(0, ts.shape[1])
+            ok = np.arange(0, ts.shape[1], dtype=int)
         # Interpolate the remaining apertures onto the same time frame as the object
         interp_lcs = np.asarray([np.interp(ts[0, ok], t, lc)
                                  for t, lc in zip(ts[1:, ok], lcs[1:, ok])])
