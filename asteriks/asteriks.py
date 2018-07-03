@@ -58,7 +58,7 @@ def get_meta(campaign, cadence='long'):
         for m in meta.items():
             if '{}'.format(campaign) in m[0][0:-1]:
                 time = np.append(time, m[1]['time'])
-                cadenceno = np.append(cadenceno, m[1]['time'])
+                cadenceno = np.append(cadenceno, m[1]['cadenceno'])
     return time, cadenceno
 
 
@@ -84,7 +84,7 @@ def get_campaign_number(name):
         onsil = np.zeros(len(df), dtype=bool)
         for i, r, d in zip(range(len(df)), list(df.ra), list(df.dec)):
             try:
-                onsil[i] = k.isOnSilicon(r, d, 1)
+                onsil[i] = k.isOnSilicon(r, d, c)
             except:
                 continue
         if np.any(onsil):
@@ -194,7 +194,9 @@ def get_radec(name, campaign=None, nlagged=0, aperture_radius=3, plot=False,
         campaign = get_campaign_number(name)
 
     # Get the ephemeris data from JPL
-    altname = find_alternate_names_using_CAF(name)[0]
+    altname = find_alternate_names_using_CAF(name)
+    if isinstance(altname, pd.Series):
+        altname = altname[0]
     with silence():
         df = K2ephem.get_ephemeris_dataframe(altname, campaign, campaign, step_size=1./(8))
 
@@ -216,7 +218,7 @@ def get_radec(name, campaign=None, nlagged=0, aperture_radius=3, plot=False,
     onsil = np.zeros(len(df), dtype=bool)
     for i, r, d in zip(range(len(df)), list(df.ra), list(df.dec)):
         try:
-            onsil[i] = k.isOnSilicon(r, d, 1)
+            onsil[i] = k.isOnSilicon(r, d, campaign)
         except:
             continue
     if not np.any(onsil):
@@ -283,8 +285,8 @@ def get_radec(name, campaign=None, nlagged=0, aperture_radius=3, plot=False,
 
 
 def find_overlapping_cadences(cadences, poscorr1, poscorr2, tol=5, distance_tol=0.02, mask=None):
-    '''Finds cadences where observations are almost exactly aligned.
-
+    '''Finds cadences where observations are almost exactly aligned in the telescope
+       despite K2 motion.
     '''
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -330,6 +332,8 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
     can_difference = True
     xaper, yaper, aper = build_aperture(n)
     log.debug('Aperture\n {}'.format(aper))
+
+    # Arrays to store final results
     ar = np.zeros((len(objs[0]), aper.shape[0], aper.shape[1], len(objs))) * np.nan
     er = np.zeros((len(objs[0]), aper.shape[0], aper.shape[1], len(objs))) * np.nan
     diff_ar = np.zeros((len(objs[0]), aper.shape[0], aper.shape[1], len(objs))) * np.nan
@@ -338,24 +342,31 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
 
     current_channel = -1
 
+    # Find the positions of all the apertures at all times.
     tablecoords = [None] * len(objs)
     for idx, obj in enumerate(objs):
         tablecoords[idx] = SkyCoord(obj.ra, obj.dec, unit=(u.deg, u.deg))
 
+    # For every file that we need to open...
     for file in tqdm(np.arange(len(mast)), desc='Inflating Files\t'):
-        campaign = mast.campaign[file]
-        channel = mast.channel[file]
+        # Find the campaign and channel
+        campaign = int(mast.campaign[file])
+        channel = int(mast.channel[file])
+
+        # If we've switched channels load a new WCS
         if channel != current_channel:
             current_channel = np.copy(channel)
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
-                    wcs = pickle.load(open('{}c{}_{:02}.p'.format(
-                        WCS_DIR, campaign, int(channel)), 'rb'))
+                    wcs = pickle.load(open('{}c{:02}_{:02}.p'.format(
+                        WCS_DIR, int(campaign), int(channel)), 'rb'))
             except FileNotFoundError:
                 log.error('There is no WCS file for Campaign {} Channel {}'
                           ''.format(campaign, channel))
                 raise WCSFailure
+
+        # Open the file
         url = mast.url[file]
         try:
             with silence():
@@ -368,34 +379,47 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
                 if np.any(np.isfinite(poscorr1)) & np.any(np.isfinite(poscorr1)):
                     can_difference = True
                     log.warning('\nThere is POS_CORR information. Difference imaging turned on.\n')
+
         except OSError:
             continue
+
+        # Get all the coordinates of the pixels
         pixel_coordinates = np.asarray(['{}, {}'.format(i, j)
                                         for i, j in zip(column.ravel(), row.ravel())])
-
         r, d = np.asarray(wcs.wcs_pix2world(column.ravel(), row.ravel(), 1))
         coords = SkyCoord(r, d, unit=(u.deg, u.deg))
         r, d = coords.ra, coords.dec
-        import pdb
-        pdb.set_trace()
+        # For every aperture...
         for idx, obj in enumerate(objs):
+            # Get all the coordinates across all time.
             tablecoord = tablecoords[idx]
             ok = np.zeros(len(tablecoord)).astype(bool)
+
+            # Only use the times where we are close to the aperture.
             for coord in coords:
                 ok |= tablecoord.separation(coord) < PIXEL_TOL*4*u.arcsec
-            tab = obj[['cadenceno', 'Column_{}_{}'.format(
-                campaign, channel), 'Row_{}_{}'.format(campaign, channel), 'velocity']][ok]
-            for t in tab.iterrows():
 
+            # Pair down the table.
+            tab = obj[['cadenceno', 'Column_{:02}_{:02}'.format(
+                campaign, channel), 'Row_{:02}_{:02}'.format(int(campaign), int(channel)), 'velocity']][ok]
+            # log.debug('{} Near Aperture {}'.format(len(tab), idx))
+            # For every time that we are near to the aperture...
+            for t in tab.iterrows():
+                # Check if it's in aperture.
                 inaperture = np.asarray(['{}, {}'.format(int(i), int(j))
                                          for i, j in zip(xaper - n + t[1][1], yaper - n + t[1][2])])
                 mask_1 = np.asarray([i in pixel_coordinates for i in inaperture])
+                # If nothing is in aperture, then move on.
                 if not np.any(mask_1):
                     continue
                 mask_2 = np.asarray([i in inaperture for i in pixel_coordinates])
+
+                # Find which cadence number we're at.
                 c = np.where(cadence == int(t[1][0]))[0]
                 if len(c) == 0:
                     continue
+
+                # If we can difference image...the do so.
                 if can_difference & difference:
                     v = t[1][3]*u.pix/u.hour
                     timetolerance = np.round(((2*n*u.pix)/(v * 0.5*u.hour)).value)
@@ -413,18 +437,28 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
                             diff_er[int(t[0]), xaper[mask_1], yaper[mask_1],
                                     idx] = (ediff.ravel()[mask_2])
                 with warnings.catch_warnings():
+                    # Build an undifferenced array
                     ar[int(t[0]), xaper[mask_1], yaper[mask_1], idx] = (flux[c[0]].ravel()[mask_2])
                     er[int(t[0]), xaper[mask_1], yaper[mask_1], idx] = (error[c[0]].ravel()[mask_2])
     return ar, er, diff_ar, diff_er
 
 
-def build_products(name, campaign, dir='/Users/ch/K2/projects/hlsp-asteriks/output/', movie=False):
+def build_products(name, campaign, dir='/Users/ch/K2/projects/hlsp-asteriks/output/', movie=False, lead_lag_correction=True):
     output_dir = '{}{}/'.format(dir, name.replace(' ', ''))
     timetables = pickle.load(open('{}{}_timetables.p'.format(
         output_dir, name.replace(' ', '')), 'rb'))
     r = pickle.load(open('{}{}_tpfs.p'.format(output_dir, name.replace(' ', '')), 'rb'))
     ar, er, diff, ediff = r['ar'], r['er'], r['diff'], r['ediff']
     thumb = np.nanmedian(ar[:, :, :, 0] - diff[:, :, :, 0], axis=0)
+    stack = 1
+
+    if np.nanmax(thumb) < 100:
+        log.warning('Faint asteroid.')
+        log.warning('Not using the lead/lag correction.')
+        log.warning('Stacking movie')
+        thumb = np.nanmedian(stack_array(ar[:, :, :, 0] - diff[:, :, :, 0]), axis=0)
+        lead_lag_correction = False
+        stack = 20
 
     if movie:
         with plt.style.context(('ggplot')):
@@ -432,7 +466,7 @@ def build_products(name, campaign, dir='/Users/ch/K2/projects/hlsp-asteriks/outp
             ok[np.where(ok == True)[0][0]:np.where(ok == True)[0][-1]] = True
             two_panel_movie(ar[ok, :, :, 0], ar[ok, :, :, 0] - diff[ok, :, :, 0],
                             title='', out='{}{}.mp4'.format(output_dir, name.replace(' ', '')), scale='linear', vmin=0,
-                            vmax=np.nanmax(thumb))
+                            vmax=np.max([np.nanmax(thumb), 300]), stack=stack)
 
     percs = np.arange(80, 100, 2)[::-1]
     final_lcs = {}
@@ -447,44 +481,49 @@ def build_products(name, campaign, dir='/Users/ch/K2/projects/hlsp-asteriks/outp
         fix_aperture(aper)
         apers[:, :, idx] = aper
         npix = np.nansum(aper)
-
+        npix_a = np.asarray([np.sum(np.isfinite(ar[:, :, :, i] - diff[:, :, :, i]) * np.atleast_3d(aper).transpose([2, 0, 1]), axis=(1, 2)) for i in range(ar.shape[-1])], dtype=float)
+        npix_a[npix == 0] = np.nan
+        
         # Build all light curves
         lcs = np.asarray([np.nansum((ar[:, :, :, i] - diff[:, :, :, i]) *
                                     np.atleast_3d(aper).T, axis=(1, 2)) for i in range(ar.shape[-1])])
-        elcs = np.asarray([(1./(npix))*np.nansum((er[:, :, :, i]**2 + ediff[:,
-                                                                            :, :, i]**2)**0.5, axis=(1, 2)) for i in range(ar.shape[-1])])
+        elcs = np.asarray([(1./(npix_a[i]))*np.nansum((er[:, :, :, i]**2 + ediff[:, :, :, i]**2)**0.5, axis=(1, 2)) for i in range(ar.shape[-1])])
+        lcs[lcs == 0] =np.nan
+        elcs[elcs == 0] =np.nan
 
-        # Find the leading/ lagging light curves
-        lead = np.copy(lcs[1:])
-        # Weighting array
-        w = np.copy(lead)
-        w[w != 0] = 1
-        lead[lead == 0] = np.nan
-        lead = np.nansum(lead, axis=0)/np.nansum(w, axis=0)
-        # We should only use leading/lagging where there are at least 50% of data points
-        ok = np.nansum(w, axis=0) > np.shape(lcs[1:])[0]/2
-        ok = np.where(ok == True)[0]
+        if lead_lag_correction:
+            # Find the leading/ lagging light curves
+            lead = np.copy(lcs[1:])
+            # Weighting array
+            w = np.copy(lead)
+            w[w != 0] = 1
+            lead[lead == 0] = np.nan
+            lead = np.nansum(lead, axis=0)/np.nansum(w, axis=0)
+            # We should only use leading/lagging where there are at least 50% of data points
+            ok = np.nansum(w, axis=0) > np.shape(lcs[1:])[0]/2
+            ok = np.where(ok == True)[0]
 
-        # Remove any points where the leading/lagging apertures are significantly not flat.
-        bad = []
-        for jdx in ok:
-            x, y, e = ts[1:, jdx], lcs[1:, jdx], elcs[1:, jdx]
-            p = (y != 0) & (e != 0) & (np.isfinite(y)) & (
-                np.isfinite(e)) & (np.abs(y) < 3*np.nanstd(y))
-            x, y, e = x[p], y[p], e[p]
-            if len(y) <= 1:
-                bad.append(jdx)
-                continue
-            z = (y) / e
-            chi2 = np.sum(z ** 2)
-            chi2dof = chi2 / (len(y) - 1)
-            sigma = np.sqrt(2. / (len(y) - 1))
-            nsig = (chi2dof - 1) / sigma
-            if nsig > 3:
-                bad.append(jdx)
-        bad = np.asarray(bad)
-        ok = np.asarray(list(set(list(ok)) - set(list(bad))))
-
+            # Remove any points where the leading/lagging apertures are significantly not flat.
+            bad = []
+            for jdx in ok:
+                x, y, e = ts[1:, jdx], lcs[1:, jdx], elcs[1:, jdx]
+                p = (y != 0) & (e != 0) & (np.isfinite(y)) & (
+                    np.isfinite(e)) & (np.abs(y) < 3*np.nanstd(y))
+                x, y, e = x[p], y[p], e[p]
+                if len(y) <= 1:
+                    bad.append(jdx)
+                    continue
+                z = (y) / e
+                chi2 = np.sum(z ** 2)
+                chi2dof = chi2 / (len(y) - 1)
+                sigma = np.sqrt(2. / (len(y) - 1))
+                nsig = (chi2dof - 1) / sigma
+                if nsig > 3:
+                    bad.append(jdx)
+            bad = np.asarray(bad)
+            ok = np.asarray(list(set(list(ok)) - set(list(bad))))
+        else:
+            ok = np.arange(0, ts.shape[1])
         # Interpolate the remaining apertures onto the same time frame as the object
         interp_lcs = np.asarray([np.interp(ts[0, ok], t, lc)
                                  for t, lc in zip(ts[1:, ok], lcs[1:, ok])])
@@ -559,7 +598,7 @@ def build_products(name, campaign, dir='/Users/ch/K2/projects/hlsp-asteriks/outp
         hdus.append(hdu)
     hdul = fits.HDUList(hdus)
     hdul.writeto(
-        '{0}{1}/hlsp_k2movingbodies_k2_lightcurve_{1}_c{2:02}_v1.fits'.format(dir, name, campaign), overwrite=True)
+        '{0}{1}/hlsp_k2movingbodies_k2_lightcurve_{1}_c{2:02}_v1.fits'.format(dir, name.replace(' ',''), campaign), overwrite=True)
     with plt.style.context(('ggplot')):
         fig = plt.figure(figsize=(13.33, 7.5))
         ax = plt.subplot2grid((6, 3), (1, 0), colspan=2, rowspan=4)
@@ -588,6 +627,7 @@ def build_products(name, campaign, dir='/Users/ch/K2/projects/hlsp-asteriks/outp
         ax.set_title('{}'.format(name), fontsize=20)
         plt.subplots_adjust(left=0.16)
         fig.savefig('{}{}_lc.png'.format(output_dir, name.replace(' ', '')), dpi=150)
+        create_asteroid_page_html(name, dir)
 
 
 def run(name, campaign=None, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-asteriks/output/'):
@@ -620,5 +660,4 @@ def run(name, campaign=None, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-
     cadenceno = timetables[0].cadenceno
     results = {'ar': ar, 'er': er, 'diff': diff, 'ediff': ediff, 't': t, 'cadenceno': cadenceno}
     pickle.dump(results, open('{}{}_tpfs.p'.format(output_dir, name.replace(' ', '')), 'wb'))
-    build_products(name, campaign, dir, True)
-    create_asteroid_page_html(name, dir)
+    build_products(name, campaign, dir, movie=True)

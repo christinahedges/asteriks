@@ -42,11 +42,17 @@ mov.alternate_names = [m.split('|') for m in mov.alternate_names]
 
 def find_alternate_names_using_CAF(name):
     mask = np.zeros(len(mov), dtype=bool)
+    if len(np.where(mov.clean_name == name)[0]) != 0:
+        return name
     for idx, m, n in zip(range(len(mov)), mov.alternate_names, mov.clean_name):
         mask[idx] = np.any(np.asarray([name.split('.')[-1].lower() == i.lower() for i in m]))
         mask[idx] |= name.split('.')[-1].lower() == n.lower()
     return(mov[mask].alternate_names.reset_index(drop=True)[0])
 
+def _mast_fail(chunk_df):
+    fail = (np.asarray(chunk_df)[0][0] == 'no rows found')
+    fail |= (np.asarray(chunk_df)[0][0] == '''<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"''')
+    return fail
 
 def find_mast_files_using_CAF(name):
     '''Find all the custom aperture files for a specific moving object.
@@ -79,6 +85,24 @@ def find_mast_files_using_CAF(name):
         chunk_df = pd.read_csv(MAST_API + query + extra + columns,
                                error_bad_lines=False,
                                names=['RA', 'Dec', 'EPIC', 'Investigation ID', 'channel', 'campaign'])
+
+        # MAST queries are hard and specific...so we have to cycle through a few options.
+        if _mast_fail(chunk_df):
+            objtype = ['TNO', 'TROJAN', 'ASTEROID', 'COMET', 'MOON', 'PLANET']
+            subtype = ['tnotype', 'trojantype', 'asteroidtype', 'comettype', 'moontype', 'planettype']
+            for obj, sub in zip(objtype, subtype):
+                for j in range(len(string.split('.')[-1].split(' '))):
+                    query = 'objtype={}&{}={}&'.format(obj, sub,  '%20'.join(string.split('.')[-1].split(' ')[j:]))
+                    chunk_df = pd.read_csv(MAST_API + query + extra + columns,
+                               error_bad_lines=False,
+                               names=['RA', 'Dec', 'EPIC', 'Investigation ID', 'channel', 'campaign'])
+                    if not _mast_fail(chunk_df):
+                        break
+                if not _mast_fail(chunk_df):
+                    break
+        if _mast_fail(chunk_df):
+            raise CAFFailure('Can not parse name {} into a MAST query?'.format(name))
+
         chunk_df = chunk_df.dropna(subset=['EPIC']).reset_index(drop=True)
         chunk_df = chunk_df.loc[chunk_df.RA != 'RA (J2000)']
         chunk_df = chunk_df.loc[chunk_df.RA != 'ra']

@@ -42,16 +42,31 @@ def campaign_base_plot(ax=None, campaigns=[2], alpha=[0.3]):
     ylims = ax.get_ylim()
     return xlims, ylims
 
+def stack_array(dat, n=3):
+    '''Bin an array down.
+    '''
+    ar = np.copy(dat)
+    ar[~np.isfinite(ar)] = 0
+    length = len(ar)
+    while not ((length / n) == length // n):
+        length -= 1
+    stacked = ar[0:length][0::n, :, :]
+    for i in np.arange(1, n):
+        stacked += ar[0:length][i::n, :, :]
+    ar[ar == 0] = np.nan
+    return stacked
 
-def two_panel_movie(dat, dif, title='', out='out.mp4', scale='linear', **kwargs):
+
+def two_panel_movie(dat, dif, title='', out='out.mp4', scale='linear', stack=1, **kwargs):
     '''Create an mp4 movie of a 3D array
     '''
+
     if scale == 'log':
-        data = np.log10(np.copy(dat))
-        diff = np.log10(np.copy(dif))
+        data = np.log10(stack_array(np.copy(dat), stack))
+        diff = np.log10(stack_array(np.copy(dif), stack))
     else:
-        data = dat
-        diff = dif
+        data = stack_array(dat)
+        diff = stack_array(dif)
     fig, axs = plt.subplots(1, 2, figsize=(8, 4.5))
     for ax in axs:
         ax.set_facecolor('#ecf0f1')
@@ -77,7 +92,7 @@ def two_panel_movie(dat, dif, title='', out='out.mp4', scale='linear', **kwargs)
     def animate(i):
         im1.set_array(data[i])
         im2.set_array(diff[i])
-    anim = animation.FuncAnimation(fig, animate, frames=len(data), interval=30)
+    anim = animation.FuncAnimation(fig, animate, frames=len(data), interval=30 * stack**0.5)
     anim.save(out, dpi=150)
 
 

@@ -54,7 +54,10 @@ def create_asteroid_page_html(name, dir):
     fname = "{0}{1}/{1}.html".format(OUTPUT_DIR, name.replace(' ', ''))
     header = '{}'.format(name)
     other_names = find_alternate_names_using_CAF(name)
-    other_names = list(set(other_names) - set([name]))
+    if isinstance(other_names, str):
+        other_names = [other_names]
+    if isinstance(other_names, (pd.Series, np.ndarray, list)):
+        other_names = list(set(other_names) - set([name]))
     aka = ''
     if len(other_names) != 0:
         aka = ' (a.k.a. {})'.format(', '.join(other_names))
@@ -71,7 +74,8 @@ def create_asteroid_page_html(name, dir):
 
     size1 = '{:.2}'.format(os.path.getsize(fitsfile)/1e6)
     size2 = '{:.2}'.format(os.path.getsize('{}/{}.mp4'.format(page_dir, name.replace(' ', '')))/1e6)
-    campaign = np.asarray(mov[mov.clean_name == name].campaign)[0]
+    mast = pd.read_csv('{0}{1}/{1}_mast.csv'.format(dir, name.replace(' ', '')))
+    campaign = ', '.join(np.asarray(mast.campaign.unique(), dtype=str))
     lcs = pickle.load(open('{0}{1}/{1}_lcs.p'.format(dir, name.replace(' ', '')), 'rb'))
     sd = (Time(lcs[0]['t'][0], format='jd').isot)
     start_date = datetime.strptime(sd, '%Y-%m-%dT%H:%M:%S.%f').strftime('%d %B %Y')
@@ -96,7 +100,6 @@ def create_asteroid_page_html(name, dir):
         'img': img,
         'citation': citation + acknowledgement
     }
-    #
     with open(fname, 'w') as f:
         html = render_template('template.html', context)
         f.write(html)
