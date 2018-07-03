@@ -283,8 +283,8 @@ def get_radec(name, campaign=None, nlagged=0, aperture_radius=3, plot=False,
                 except FileNotFoundError:
                     continue
                 X, Y = wcs.wcs_world2pix([[r, d] for r, d in zip(dfs[jdx].ra, dfs[jdx].dec)], 1).T
-                dfs[jdx]['Row_{}_{}'.format(b, ch)] = Y.astype(int)
-                dfs[jdx]['Column_{}_{}'.format(b, ch)] = X.astype(int)
+                dfs[jdx]['Row_{0:02}_{1:02}'.format(int(b), ch)] = Y.astype(int)
+                dfs[jdx]['Column_{0:02}_{1:02}'.format(int(b), ch)] = X.astype(int)
     return dfs
 
 
