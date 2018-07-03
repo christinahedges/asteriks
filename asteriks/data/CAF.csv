@@ -1,7 +1,7 @@
 obj_name,campaign,ap_start,ap_end,count,EPIC_ID,main_type,sub_type,new_obj_name,clean_name,alternate_names
 Asteroid.Trojan.Leucus,111|112,200125327,200145290,2999,,asteroid-Trojan,Leucus,Asteroid.Trojan.Leucus,Leucus,11351|1997 TS25|Leucus
 2013 A1 (Siding Springs),2,200001787,200004369,2583,,comet,2013 A1 (Siding Springs),2013 A1 (Siding Springs),2013 A1 (Siding Springs),Siding Spring
-Comet.67P/Churyumov-Gerasimenko,10,200081804,200084003,2200,,comet,67P/Churyumov-Gerasimenko,Comet.67P/Churyumov-Gerasimenko,67P/Churyumov-Gerasimenko,67P
+Churyumov-Gerasimenko,10,200081804,200084003,2200,,comet,67P/Churyumov-Gerasimenko,Churyumov-Gerasimenko,Churyumov-Gerasimenko,67P
 Asteroid.Ryugu,15,200193072,200194787,1716,,,,Asteroid.Ryugu,Ryugu,162173|Ryugu|1999 JU3
 Asteroid.Trojan.2001 DU87,111|112,200113657,200134731,1700,,asteroid-Trojan,2001 DU87,Asteroid.Trojan.2001 DU87,2001 DU87,2001 DU87|63291
 Asteroid.Trojan.2001 SE182,111|112,200118031,200138874,1592,,asteroid-Trojan,2001 SE182,Asteroid.Trojan.2001 SE182,2001 SE182,156085|2001 SE182
