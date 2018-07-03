@@ -443,7 +443,7 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
     return ar, er, diff_ar, diff_er
 
 
-def build_products(name, campaign, dir='/Users/ch/K2/projects/hlsp-asteriks/output/', movie=False, lead_lag_correction=True):
+def build_products(name, campaign, dir, movie=False, lead_lag_correction=True):
     output_dir = '{}{}/'.format(dir, name.replace(' ', ''))
     timetables = pickle.load(open('{}{}_timetables.p'.format(
         output_dir, name.replace(' ', '')), 'rb'))
@@ -483,7 +483,7 @@ def build_products(name, campaign, dir='/Users/ch/K2/projects/hlsp-asteriks/outp
         npix = np.nansum(aper)
         npix_a = np.asarray([np.sum(np.isfinite(ar[:, :, :, i] - diff[:, :, :, i]) * np.atleast_3d(aper).transpose([2, 0, 1]), axis=(1, 2)) for i in range(ar.shape[-1])], dtype=float)
         npix_a[npix == 0] = np.nan
-        
+
         # Build all light curves
         lcs = np.asarray([np.nansum((ar[:, :, :, i] - diff[:, :, :, i]) *
                                     np.atleast_3d(aper).T, axis=(1, 2)) for i in range(ar.shape[-1])])

@@ -117,18 +117,3 @@ def create_search_page_html():
     html = render_template('search.html', context)
     with open(search_link, 'w') as f:
         f.write(html)
-
-
-def main(dir='/Users/ch/K2/projects/hlsp-asteriks/output/'):
-    names = np.asarray(mov.clean_name)
-    names = names[np.asarray(
-        [os.path.isfile('{0}/{1}/{1}_lcs.p'.format(dir, n.replace(' ', ''))) for n in names])]
-    for name in names:
-        create_asteroid_page_html(name, dir)
-    create_search_page_html()
-
-########################################
-
-
-if __name__ == "__main__":
-    main()
