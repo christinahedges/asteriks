@@ -4,6 +4,7 @@ from matplotlib import animation
 from matplotlib.colors import Normalize
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+plt.switch_backend('agg')
 import K2ephem
 from astropy.coordinates import SkyCoord
 import astropy.units as u
