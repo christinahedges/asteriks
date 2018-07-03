@@ -45,9 +45,9 @@ def find_alternate_names_using_CAF(name):
 #    if len(np.where(mov.clean_name == name)[0]) != 0:
 #        return name
     for idx, m, n in zip(range(len(mov)), mov.alternate_names, mov.clean_name):
-        mask[idx] = np.any(np.asarray([name.split('.')[-1].lower() == i.lower() for i in m]))
-        mask[idx] |= name.split('.')[-1].lower() == n.lower()
-    names = [mov[mask].clean_name.reset_index(drop=True)[0]]
+        mask[idx] = np.any(np.asarray([name.split('.')[-1].lower().replace(' ','') == i.lower().replace(' ','') for i in m]))
+        mask[idx] |= name.split('.')[-1].lower().replace(' ','') == n.lower().replace(' ','')
+    names = [m for m in mov[mask].clean_name.reset_index(drop=True)]
     for m in mov[mask].alternate_names.reset_index(drop=True)[0]:
         if len(m) > 1:
             names.append(m)

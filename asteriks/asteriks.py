@@ -525,7 +525,7 @@ def build_products(name, campaign, dir, movie=False, lead_lag_correction=True):
                 if nsig > 3:
                     bad.append(jdx)
             bad = np.asarray(bad)
-            if len(bad) < np.shape(lcs[1])*0.5:
+            if len(bad) < int(np.shape(lcs)[1]*0.5):
                 ok = np.asarray(list(set(list(ok)) - set(list(bad))))
         else:
             ok = np.arange(0, ts.shape[1], dtype=int)
