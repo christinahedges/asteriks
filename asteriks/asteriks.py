@@ -194,11 +194,15 @@ def get_radec(name, campaign=None, nlagged=0, aperture_radius=3, plot=False,
         campaign = get_campaign_number(name)
 
     # Get the ephemeris data from JPL
-    altname = find_alternate_names_using_CAF(name)
-    if isinstance(altname, pd.Series):
-        altname = altname[0]
+    alternate_names = find_alternate_names_using_CAF(name)
     with silence():
-        df = K2ephem.get_ephemeris_dataframe(altname, campaign, campaign, step_size=1./(8))
+        for altname in alternate_names:
+            try:
+                df = K2ephem.get_ephemeris_dataframe(altname, campaign, campaign, step_size=1./(8))
+            except:
+                continue
+            if 'df' in locals():
+                break
 
     # Interpolate to the time values for the campaign.
     dftimes = [t[0:23] for t in np.asarray(df.index, dtype=str)]

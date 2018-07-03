@@ -42,12 +42,16 @@ mov.alternate_names = [m.split('|') for m in mov.alternate_names]
 
 def find_alternate_names_using_CAF(name):
     mask = np.zeros(len(mov), dtype=bool)
-    if len(np.where(mov.clean_name == name)[0]) != 0:
-        return name
+#    if len(np.where(mov.clean_name == name)[0]) != 0:
+#        return name
     for idx, m, n in zip(range(len(mov)), mov.alternate_names, mov.clean_name):
         mask[idx] = np.any(np.asarray([name.split('.')[-1].lower() == i.lower() for i in m]))
         mask[idx] |= name.split('.')[-1].lower() == n.lower()
-    return(mov[mask].alternate_names.reset_index(drop=True)[0])
+    names = [mov[mask].clean_name.reset_index(drop=True)[0]]
+    for m in mov[mask].alternate_names.reset_index(drop=True)[0]:
+        if len(m) > 1:
+            names.append(m)
+    return(names)
 
 def _mast_fail(chunk_df):
     fail = (np.asarray(chunk_df)[0][0] == 'no rows found')
