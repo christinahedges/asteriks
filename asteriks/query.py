@@ -16,12 +16,15 @@ import matplotlib.pyplot as plt
 import pickle
 import json
 import ast
+import re
 from copy import deepcopy
+from bs4 import BeautifulSoup
+import urllib3
+urllib3.disable_warnings()
 
 from .utils import *
 from . import PACKAGEDIR
 from . import plotting
-
 
 class CAFFailure(Exception):
     # There are no CAF files at MAST to use for this object
@@ -33,11 +36,61 @@ class CampaignFailure(Exception):
     pass
 
 
-MOV_FILE = os.path.join(PACKAGEDIR, 'data', 'CAF.csv')
+MOV_FILE = os.path.join(PACKAGEDIR, 'data', 'CAF_with_proposers.csv')
 mov = pd.read_csv(MOV_FILE)
 # print(mov)
 mov.loc[~(np.asarray([m == m for m in mov.alternate_names])), 'alternate_names'] = ''
 mov.alternate_names = [m.split('|') for m in mov.alternate_names]
+
+
+def get_bibtex(ID):
+    '''Get a bibtex entry for a give K2 GO Proposal
+    '''
+    url = 'https://keplerscience.arc.nasa.gov/data/k2-programs/{}.txt'.format(ID)
+    http = urllib3.PoolManager()
+    r = http.request('GET', url)
+    soup = BeautifulSoup(r.data, 'html.parser')
+    results = {'ID': ID}
+    for item in ['Title:', 'PI:', 'CoIs:']:
+        results[item[:-1]] = (str(soup).split(item)[1].split('\n')[0]).split('(')[0].strip()
+    abstract = ''
+    for s in str(soup).split('\n\n'):
+        if np.asarray([s.strip().replace('\n','').startswith(item) for item in ['#', 'Title:', 'CoIs:', 'PI:', 'References:', '[']]).any():
+            continue
+        abstract = '{}{}'.format(abstract, s.split('References:')[0])
+
+    abstract = (re.sub("(.{64})", "\\1\n\t\t", abstract.replace('\r\n',''), 0, re.DOTALL))
+    results['Abstract'] = abstract
+    c = int(ID[2:-3])
+    if c in [0, 1]:
+        date = ['February 2014']
+    if c in [2, 3, 4]:
+        date = ['June 2014']
+    if c in [5, 6, 7]:
+        date = ['October 2014']
+    if c in [8, 9, 10]:
+        date = ['June 2015']
+    if c in [11, 12, 13]:
+        date = ['Februrary 2016']
+    if c in [14, 15, 16]:
+        date = ['November 2016']
+    if c in [17, 18, 19]:
+        date = ['October 2017']
+    results['Date'] = date[0]
+    results['URL'] = url
+
+    authors = np.append(results['PI'].split(';'), results['CoIs'].split(';'))
+    authors = authors[authors != '']
+    authors = ' and '.join(['{{{}}}, {}.'.format(auth.strip().split(' ')[0][:-1], auth.strip().split(' ')[0][0]) for auth in authors])
+    abstract = (re.sub("(.{92})", "\\1\n\t\t", authors, 0, re.DOTALL))
+    bib = ("@MISC{{{0}ktwo.prop{1},\n\tauthor = {{{2}}},"
+           "\n\ttitle = {{{3}}},\n\tabstract = {{{6}}}"
+           "\n\thowpublished = {{K2 Proposal}},"
+           "\n\tyear = {{{0}}},\n\tmonth = {{{4}}},\n\turl = {{{5}}},\n\t"
+           "notes = {{K2 Proposal {1}}}\n}}"
+            "".format(results['Date'].split(' ')[1], results['ID'], authors, results['Title'], results['Date'].split(' ')[0], results['URL'], results['Abstract']))
+    return bib
+
 
 
 def find_alternate_names_using_CAF(name):
@@ -47,11 +100,32 @@ def find_alternate_names_using_CAF(name):
     for idx, m, n in zip(range(len(mov)), mov.alternate_names, mov.clean_name):
         mask[idx] = np.any(np.asarray([name.split('.')[-1].lower().replace(' ','') == i.lower().replace(' ','') for i in m]))
         mask[idx] |= name.split('.')[-1].lower().replace(' ','') == n.lower().replace(' ','')
-    names = [m for m in mov[mask].clean_name.reset_index(drop=True)]
+    names = [m for m in mov[mask].clean_name]
     for m in mov[mask].alternate_names.reset_index(drop=True)[0]:
         if len(m) > 1:
             names.append(m)
     return(names)
+
+def find_GO_proposal(name):
+    mask = np.zeros(len(mov), dtype=bool)
+    for idx, m, n in zip(range(len(mov)), mov.alternate_names, mov.clean_name):
+        mask[idx] = np.any(np.asarray([name.split('.')[-1].lower().replace(' ','') == i.lower().replace(' ','') for i in m]))
+        mask[idx] |= name.split('.')[-1].lower().replace(' ','') == n.lower().replace(' ','')
+    IDs = [m for m in mov[mask].IDS]
+    return('|'.join(IDs))
+
+def find_PIs(name):
+    mask = np.zeros(len(mov), dtype=bool)
+    for idx, m, n in zip(range(len(mov)), mov.alternate_names, mov.clean_name):
+        mask[idx] = np.any(np.asarray([name.split('.')[-1].lower().replace(' ','') == i.lower().replace(' ','') for i in m]))
+        mask[idx] |= name.split('.')[-1].lower().replace(' ','') == n.lower().replace(' ','')
+    PIs = [m for m in mov[mask].PROPOSERS]
+    if len(PIs) == 0:
+        return ''
+    if np.asarray(isinstance(PIs[0], float)):
+        return ''
+    return('|'.join(PIs))
+
 
 def _mast_fail(chunk_df):
     fail = (np.asarray(chunk_df)[0][0] == 'no rows found')

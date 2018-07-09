@@ -37,6 +37,7 @@ citation = """<code><pre>@ARTICLE{asteriks,
                adsurl = {},
             }</pre></code>
         """
+
 acknowledgement = '''<code><pre>
                     Acknowledgement:
                     This work uses...</pre></code>'''
@@ -54,6 +55,12 @@ def create_asteroid_page_html(name, dir):
     fname = "{0}{1}/{1}.html".format(OUTPUT_DIR, name.replace(' ', ''))
     header = '{}'.format(name)
     other_names = find_alternate_names_using_CAF(name)
+    ids = find_GO_proposal(name)
+    PIs = find_PIs(name)
+    extra_citations = '<code><pre>' +\
+                      '\n\n'.join([get_bibtex(id) for id in ids.split('|')]) +\
+                      '</pre></code>'
+
     if isinstance(other_names, str):
         other_names = [other_names]
     if isinstance(other_names, (pd.Series, np.ndarray, list)):
@@ -84,9 +91,17 @@ def create_asteroid_page_html(name, dir):
     intro_string = ("<br>{0}{4} is a moving object from K2 campaign {1}. "
                     "You can read more information about this object at the <b>JPL Small-Body Database Browser</b> <a href={5}>here</a>. "
                     " Data was taken from {2} to {3}. "
-                    "<br></br>You can download the light curve, target pixel file and vizualisations "
-                    " of {0} using the links below."
+
                     "".format(name, campaign, start_date, end_date, aka, jpllink))
+
+    if len(PIs) != 0:
+        intro_string += ("<br></br>{0} was proposed for by <b>{1}</b> in {2}. "
+                         "If you use this data, please cite their proposal. "
+                         "You can find the bibtex citation by clicking the button below."
+                         "".format(name, ', '.join(PIs.split('|')), ', '.join(ids.split('|'))))
+    else:
+        intro_string += "<br></br> You can find the bibtex citation for this object by clicking the button below."
+
     context = {
         'index_link': index_link,
         'search_link': search_link,
@@ -98,7 +113,7 @@ def create_asteroid_page_html(name, dir):
         'mp4': mp4,
         'intro_string': intro_string,
         'img': img,
-        'citation': citation + acknowledgement
+        'citation': citation + extra_citations + acknowledgement
     }
     with open(fname, 'w') as f:
         html = render_template('template.html', context)
@@ -107,12 +122,17 @@ def create_asteroid_page_html(name, dir):
 
 def create_search_page_html():
     pagenames = glob(OUTPUT_DIR+"*/*.html")
+    names = np.asarray([p.split('/')[-2] for p in pagenames])
+    for idx, name in enumerate(names):
+        if (str(name[0:4]).isdigit()) and (not str(names[4:]).isdigit()):
+            names[idx] = '{} {}'.format(name[0:4], name[4:])
 
-    names = [p.split('/')[-2] for p in pagenames]
+    PIs = np.asarray(['(PI: {})'.format(', '.join(find_PIs(name).split('|'))) for name in names])
+    PIs[np.where(PIs == '(PI: )')[0]] = ''
     links = pagenames
     context = {
         'index_link': index_link,
-        'names_links': zip(names, links)
+        'names_links': zip(names, links, PIs)
     }
     html = render_template('search.html', context)
     with open(search_link, 'w') as f:

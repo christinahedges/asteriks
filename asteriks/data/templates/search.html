@@ -77,8 +77,8 @@ function myFunction() {
       <div class="col-xs-12" style="height:10px;"></div>
       <div class="pre-scrollable" >
         <ul id="myUL">
-          {% for name, link in names_links %}
-            <li><a href="{{ link }}">{{ name }}</a></li>
+          {% for name, link, PI in names_links %}
+            <li><a href="{{ link }}">{{ name }}  &nbsp; &nbsp; &nbsp; &nbsp; <font color='#9b59b6'>{{ PI }}</font></a></li>
           {% endfor %}
         </ul>
       </div>
