@@ -11,14 +11,14 @@ from astropy.time import Time
 from datetime import datetime
 
 TEMPLATE_DIR = os.path.join(PACKAGEDIR, 'data/')
-OUTPUT_DIR = os.path.join('/'.join(PACKAGEDIR.split('/')[0:-1]), 'website', 'pages/')
+OUTPUT_DIR = os.path.join('/'.join(PACKAGEDIR.split('/')[0:-1]), 'docs/', 'pages/')
 TEMPLATE_ENVIRONMENT = Environment(
     autoescape=False,
     loader=FileSystemLoader(os.path.join(TEMPLATE_DIR, 'templates')),
     trim_blocks=False)
 
-index_link = '/'.join(PACKAGEDIR.split('/')[0:-1])+'/website/index.html'
-search_link = '/'.join(PACKAGEDIR.split('/')[0:-1])+'/website/search.html'
+index_link = '../../index.html'
+search_link = '../../search.html'
 
 
 citation = """<code><pre>@ARTICLE{asteriks,

@@ -11,10 +11,10 @@
     <title>Pluto</title>
 
     <!-- Bootstrap core CSS -->
-    <link href="/Users/ch/K2/projects/asteriks/website/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link href="vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
 
     <!-- Custom styles for this template -->
-    <link href="/Users/ch/K2/projects/asteriks/website/css/small-business.css" rel="stylesheet">
+    <link href="css/small-business.css" rel="stylesheet">
 
   </head>
 
@@ -30,7 +30,7 @@
         <div class="collapse navbar-collapse" id="navbarResponsive">
           <ul class="navbar-nav ml-auto">
             <li class="nav-item active">
-              <a class="nav-link" href="/home/chedges/Documents/asteriks/website/index.html">Home
+              <a class="nav-link" href="../../index.html">Home
                 <span class="sr-only">(current)</span>
               </a>
             </li>
@@ -38,7 +38,7 @@
               <a class="nav-link" href="#">About</a>
             </li>
             <li class="nav-item">
-              <a class="nav-link" href="/home/chedges/Documents/asteriks/website/search.html">Search</a>
+              <a class="nav-link" href="../../search.html">Search</a>
             </li>
             <li class="nav-item">
               <a class="nav-link" href="#">Contact</a>
@@ -84,7 +84,7 @@
         <!-- /.col-lg-8 -->
         <div class="col-lg-4">
           <h1> Pluto</h1>
-          <p><br>Pluto (a.k.a. 999) is a moving object from K2 campaign 7. You can read more information about this object at the <b>JPL Small-Body Database Browser</b> <a href=https://ssd.jpl.nasa.gov/sbdb.cgi?sstr=Pluto;old=0;orb=1;cov=0;log=0;cad=0#orb>here</a>.  Data was taken from 06 October 2015 to 26 December 2015. <br></br>You can download the light curve, target pixel file and vizualisations  of Pluto using the links below.</p>
+          <p><br>Pluto (a.k.a. 999) is a moving object from K2 campaign 7. You can read more information about this object at the <b>JPL Small-Body Database Browser</b> <a href=https://ssd.jpl.nasa.gov/sbdb.cgi?sstr=Pluto;old=0;orb=1;cov=0;log=0;cad=0#orb>here</a>.  Data was taken from 06 October 2015 to 26 December 2015. <br></br>Pluto was proposed for by <b>Benecchi</b> in GO7012. If you use this data, please cite their proposal. You can find the bibtex citation by clicking the button below.</p>
           <center><button type="button" class="btn btn-primary" href="#demo" data-toggle="collapse">Citation for Pluto</button></center>
           <!-- <a class="btn btn-primary btn-lg" href="#">Download</a> -->
         </div>
@@ -104,7 +104,7 @@
 
       <div id="demo" class="collapse">
         <div style='padding: 10px;'></div>
-        <div class="well well-lg"> <code><pre>@ARTICLE{asteriks,
+        <div class="well well-lg" style=> <code><pre>@ARTICLE{asteriks,
                author = {{Hedges}, C. and Co},
                 title = "{}",
               journal = {},
@@ -119,7 +119,76 @@
                   doi = {},
                adsurl = {},
             }</pre></code>
-        <code><pre>
+        <code><pre>@MISC{2014ktwo.propGO7012,
+	author = {{Benecchi}, B. and {Schwamb}, S. and {Binzel}, B. and {Lisse}, L.},
+	title = {The Lightcurve of Pluto Post New Horizons},
+	abstract = {Discovered in 1930, Pluto is a unique dwarf planet that has chal
+		lenged and inspired the minds of many. It is a key object in the
+		 third zone out from our Sun and provides important insight to f
+		ormation and collisional processes that were at work in the orig
+		inal solar nebula. In July 2015 the New Horizons spacecraft (a N
+		ASA mission) will encounter this small, dark, icy world and the 
+		family of objects that orbit it providing a once-in-a-lifetime o
+		pportunity to directly link our Earth-based view of Pluto with g
+		round truth provided by in situ measurements. However, this enco
+		unter will be short-lived compared to other planetary voyages be
+		cause it is unfeasible to slow the spacecraft down to orbit with
+		in the Pluto system; instead this visit will be a flyby. Studies
+		 from Earth-based or Earth-orbit facilities prior to and post en
+		counter will provide critical baseline and context information f
+		or optimal interpretation of the valuable flyby science data. Pl
+		uto is known to be a constantly changing world due to the solar 
+		energy being received decreasing by ~2% per year on account of i
+		ts eccentric orbit now carrying it rapidly away from perihelion.
+		  Whats more, the orientation of Pluto's spin axis and the sub-s
+		olar latitude (the height of the "midday Sun") changes by more t
+		han 1 degree per Earth year, bringing 100,000 square kilometers 
+		of new surface area into sunlight for the first time in a centur
+		y (while casting an equal and opposite polar area into a century
+		 long arctic winter). These orbit-related effects on the atmosph
+		ere and surface of Pluto are on top of the well-known longitudin
+		al variations measurable over the course Plutos 6.387 day rotati
+		on. Observations of Pluto one year prior-to and post-flyby will 
+		allow us to identify evolving trends in the system which could b
+		e missed if we focused on only the flyby dataset. Our ultimate g
+		oal is to better understand Pluto, its family of satellites and 
+		their evolution since formation. We propose to observe the Pluto
+		 system, which is on silicon in the selected Campaign 7 K2 field
+		. These observations will take place after New Horizons has comp
+		leted its flyby and will provide a key baseline of photometric o
+		bservations that are not available from ground-based observatori
+		es because of Pluto's position relative to Sun during the timefr
+		ame of this campaign (Oct-Dec 2015).  Pluto is relatively bright
+		, MV~14, but not overly bright, so it is an ideal object for the
+		 K2 set-up. The positional uncertainty of Pluto over the observi
+		ng period is less than a Kepler pixel providing starlike PRFs in
+		 a single K2 observation. Therefore, monitoring Pluto, which mov
+		es only a few arcminutes per night, requires a target pixel mask
+		 over its path on the FOV. Pluto's rotation period is 6.387 days
+		 so the collected 30-min integration "long cadence" datapoints w
+		ill provide measurements of nearly 12 full rotations of Pluto an
+		d its companions. Likewise, the 3-month baseline also allows us 
+		to sample seasonal variations and solar phase angles ranging fro
+		m 1.7°-0.2° during Campaign 7. The continuous 30-minute sampling
+		 interval provides a time resolution not possible from any other
+		 observatory. Some complications for interpreting the dataset wi
+		ll result from the large pixel scale, but the high sampling dens
+		ity will allow for disentanglement of the individual Pluto-Charo
+		n lightcurves.  This will be the highest resolution Earth-center
+		ed dataset of the Pluto system ever collected and will provide c
+		ritical long time baseline photometry for tying the New Horizons
+		 sub-disk photometry to disk integrated observations. This datas
+		et is critical for our continued study of Pluto's evolving surfa
+		ce-atmosphere interaction as it recedes from the Sun and of the 
+		influence of Pluto and Charon on each other. It will also provid
+		e insight for interpretation of other dwarf planets and Kuiper B
+		elt objects in the third zone of our Solar System.}
+	howpublished = {K2 Proposal},
+	year = {2014},
+	month = {October},
+	url = {https://keplerscience.arc.nasa.gov/data/k2-programs/GO7012.txt},
+	notes = {K2 Proposal GO7012}
+}</pre></code><code><pre>
                     Acknowledgement:
                     This work uses...</pre></code> </div>
       </div>
@@ -179,8 +248,8 @@
     </footer> -->
 
     <!-- Bootstrap core JavaScript -->
-    <script src="/Users/ch/K2/projects/asteriks/website/vendor/jquery/jquery.min.js"></script>
-    <script src="/Users/ch/K2/projects/asteriks/website/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="vendor/jquery/jquery.min.js"></script>
+    <script src="vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 
   </body>
 
