@@ -46,6 +46,9 @@ mov.alternate_names = [m.split('|') for m in mov.alternate_names]
 def get_bibtex(ID):
     '''Get a bibtex entry for a give K2 GO Proposal
     '''
+    if ID == '':
+        return ''
+
     url = 'https://keplerscience.arc.nasa.gov/data/k2-programs/{}.txt'.format(ID)
     http = urllib3.PoolManager()
     r = http.request('GET', url)
@@ -111,7 +114,8 @@ def find_GO_proposal(name):
     for idx, m, n in zip(range(len(mov)), mov.alternate_names, mov.clean_name):
         mask[idx] = np.any(np.asarray([name.split('.')[-1].lower().replace(' ','') == i.lower().replace(' ','') for i in m]))
         mask[idx] |= name.split('.')[-1].lower().replace(' ','') == n.lower().replace(' ','')
-    IDs = [m for m in mov[mask].IDS]
+    IDs = np.asarray([m for m in mov[mask].IDS])
+    IDs = IDs[[~isinstance(i, float) for i in IDs]]
     return('|'.join(IDs))
 
 def find_PIs(name):

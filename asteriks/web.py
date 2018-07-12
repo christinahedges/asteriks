@@ -76,8 +76,8 @@ def create_asteroid_page_html(name, dir):
     shutil.copyfile(mp4, '{}/{}.mp4'.format(page_dir, name.replace(' ', '')))
     fitsfile = glob('{0}{1}/*.fits'.format(dir, name.replace(' ', '')))[0]
     shutil.copyfile(fitsfile, '{}/{}'.format(page_dir, fitsfile.split('/')[-1]))
-    img = '{1}_lc.png'.format(name.replace(' ', ''))
-    mp4 = '{1}.mp4'.format(name.replace(' ', ''))
+    img = '{}_lc.png'.format(name.replace(' ', ''))
+    mp4 = '{}.mp4'.format(name.replace(' ', ''))
 
     size1 = '{:.2}'.format(os.path.getsize(fitsfile)/1e6)
     size2 = '{:.2}'.format(os.path.getsize('{}/{}.mp4'.format(page_dir, name.replace(' ', '')))/1e6)
@@ -121,18 +121,17 @@ def create_asteroid_page_html(name, dir):
 def create_search_page_html():
     pagenames = glob(OUTPUT_DIR+"*/*.html")
     names = np.asarray([p.split('/')[-2] for p in pagenames])
-    print(names)
     for idx, name in enumerate(names):
-        if (str(name[0:4]).isdigit()) and (not str(names[4:]).isdigit()):
+        if (str(name[0:4]).isdigit()) and (not str(name[4:]).isdigit()):
             names[idx] = '{} {}'.format(name[0:4], name[4:])
 
     PIs = np.asarray(['(PI: {})'.format(', '.join(find_PIs(name).split('|'))) for name in names])
     PIs[np.where(PIs == '(PI: )')[0]] = ''
-    links = pagenames
+    links = ['pages/{}'.format('/'.join(name.split('/')[-2:])) for name in pagenames]
     context = {
         'index_link': index_link,
         'names_links': zip(names, links, PIs)
     }
     html = render_template('search.html', context)
-    with open(search_link, 'w') as f:
+    with open('{}/docs/search.html'.format('/'.join(PACKAGEDIR.split('/')[:-1])), 'w') as f:
         f.write(html)
