@@ -121,6 +121,7 @@ def create_asteroid_page_html(name, dir):
 def create_search_page_html():
     pagenames = glob(OUTPUT_DIR+"*/*.html")
     names = np.asarray([p.split('/')[-2] for p in pagenames])
+    print(names)
     for idx, name in enumerate(names):
         if (str(name[0:4]).isdigit()) and (not str(names[4:]).isdigit()):
             names[idx] = '{} {}'.format(name[0:4], name[4:])
