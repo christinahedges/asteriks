@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+
+  <head>
+
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <title>K2 Moving Bodies: FAQ</title>
+
+    <!-- Bootstrap core CSS -->
+    <link href="vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Custom styles for this template -->
+    <link href="css/small-business.css" rel="stylesheet">
+
+  </head>
+
+  <body>
+
+      <!-- Navigation -->
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container">
+          <a class="navbar-brand" href="#">K2MovingBodies</a>
+          <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarResponsive" aria-controls="navbarResponsive" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+          </button>
+          <div class="collapse navbar-collapse" id="navbarResponsive">
+            <ul class="navbar-nav ml-auto">
+              <li class="nav-item active">
+                <a class="nav-link" href="index.html">Home
+                  <span class="sr-only">(current)</span>
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" href="faq.html">FAQ</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" href="search.html">Search</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" href="#">Contact</a>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </nav>
+
+  <!-- Page Content -->
+    <div class="container">
+
+      <!-- Heading Row -->
+      <div class="row my-4">
+        <div class="col-lg-12">
+          <br><br>
+          <h1>K2 Moving Bodies FAQ</h1>
+          <br><br>
+
+          <div class="col-md-12 mb-4">
+            <div class="card h-100">
+              <div class="card-body">
+                <h2 class="card-title">Q: What is K2 Moving Bodies?</h2>
+              </div>
+              <div class="card-footer">
+                  <p class="card-text">K2 Moving Bodies is a project to generate light curves for the solar system objects observed with Kepler/K2. The first release will contain the light curves from objects proposed by <a href='https://keplerscience.arc.nasa.gov/k2-approved-programs.html'>Guest Observers</a> in Campaigns 0-13. Hopefully there will be further releases of more objects soon. The light curves and other products from K2 Moving Bodies will shortly be available at <a href='https://archive.stsci.edu/k2/'>the MAST archive</a> as a High Level Science Product. 
+                  </p>
+              </div>
+            </div>
+          </div>
+
+
+          <div class="col-md-12 mb-4">
+            <div class="card h-100">
+              <div class="card-body">
+                <h2 class="card-title">Q: What is asteriks?</h2>
+              </div>
+              <div class="card-footer">
+                  <p class="card-text"><a href='https://github.com/christinahedges/asteriks'>asteriks</a> is a code to produce light curves of asteroids observed during the Kepler/K2 mission. These moving objects require a unique data extraction that can not be performed with the normal Kepler pipeline. You can read more about asteriks and how it works in our recent paper.
+                  </p>
+              </div>
+            </div>
+          </div>
+
+
+          <div class="col-md-12 mb-4">
+            <div class="card h-100">
+              <div class="card-body">
+                <h2 class="card-title">Q: How do I use asteriks?</h2>
+              </div>
+              <div class="card-footer">
+                  <p class="card-text">There are two ways. You can use our pregenerated products on this website or hosted at MAST. The search bar above will let you find any of the asteroids and comets currently available in our public release. Alternately, you can download our code from github <a href='https://github.com/christinahedges/asteriks'>here</a> and run it for yourself. If you are having trouble with asteriks or would like to ask about a particular object, you can get in touch with the <a href="https://keplerscience.arc.nasa.gov/helpdesk.html">Kepler/K2 Guest Observer office</a> directly.
+                  </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-md-12 mb-4">
+            <div class="card h-100">
+              <div class="card-body">
+                <h2 class="card-title">Q: Why isn't my object listed?</h2>
+              </div>
+              <div class="card-footer">
+              <p class="card-text">
+                The current version of asteriks only covers solar system objects in the first 13 campaigns of K2 data. Anything beyond these campaigns will be released in a later version of asteriks. Additionally, some objects cannot be run with asteriks. Short Cadence observations cannot be processed with asteriks, and observations of or near saturated objects can not be processed. Because of this Uranus, Neptune and all their moons are not available through asteriks. Finally some comets are too large to automatically assign an aperture too, and so are not available thorugh asteriks.
+              </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-md-12 mb-4">
+            <div class="card h-100">
+              <div class="card-body">
+                <h2 class="card-title">Q: How do I cite asteriks data products in my work?</h2>
+              </div>
+              <div class="card-footer">
+                <p class="card-text">
+                There is a citation tor each object available thorugh asteriks. Click on the button at the bottom of each objects page to find the citations for asteriks and the Guest Observer proposals for the object. You will also find an acknowledgement which you can add to acknowledge the Kepler/K2 mission.
+              </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-md-12 mb-4">
+            <div class="card h-100">
+              <div class="card-body">
+                <h2 class="card-title">Q: What data products are available?</h2>
+              </div>
+              <div class="card-footer">
+              <p class="card-text">
+                We provide light curves for each object in the form of a single <i>.fits</i> file. This file contains multiple extensions. The first extension is the 'optimal' aperture for the object. The following extensions have increasing aperture sizes. Users wanting to investigate the objects carefully should consider varying the aperture size.
+
+                We also deliver an <i>.mp4</i> file of each solar system object moving through the K2 observation. These are available on each objects page.
+              </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-md-12 mb-4">
+            <div class="card h-100">
+              <div class="card-body">
+                <h2 class="card-title">Q: How do I use asteriks <i>.fits</i> files?</h2>
+              </div>
+              <div class="card-footer">
+                <p class="card-text">
+                  <i>.fits</i> files are a common astronomy format that can be read in Python using the <a href='http://docs.astropy.org/en/stable/io/fits/'>astropy.io.fits</a> package, or opened with <a href="http://www.star.bris.ac.uk/~mbt/topcat/">TOPCAT</a>. </p><p>There are several extensions in the fits file, one per aperture. Each file also contains quality flags for the light curve. Bad quality flags should usually be masked. You can read more about the data format of the fits files in our <a href='https://github.com/christinahedges/asteriks/README.rst'>readme</a>.
+                </p>
+              </div>
+            </div>
+          </div>
+
+
+         </div>
+        </div>
+        <!-- /.col-md-4 -->
+      </div>
+      <!-- /.row -->
+    </div>
+    <!-- Bootstrap core JavaScript -->
+    <script src="vendor/jquery/jquery.min.js"></script>
+    <script src="vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+
+  </body>
+
+</html>

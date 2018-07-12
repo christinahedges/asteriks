@@ -103,8 +103,6 @@ def create_asteroid_page_html(name, dir):
         intro_string += "<br></br> You can find the bibtex citation for this object by clicking the button below."
 
     context = {
-        'index_link': index_link,
-        'search_link': search_link,
         'header': header,
         'size1': size1,
         'size2': size2,
