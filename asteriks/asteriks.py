@@ -448,7 +448,8 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
                     # Build an undifferenced array
                     ar[int(t[0]), xaper[mask_1], yaper[mask_1], idx] = (flux[c[0]].ravel()[mask_2])
                     er[int(t[0]), xaper[mask_1], yaper[mask_1], idx] = (error[c[0]].ravel()[mask_2])
-
+    diff_ar[diff_ar == 0] = np.nan
+    diff_er[diff_er == 0] = np.nan
     return ar, er, diff_ar, diff_er
 
 
@@ -458,9 +459,12 @@ def build_products(name, campaign, dir, movie=False, lead_lag_correction=True):
         output_dir, name.replace(' ', '')), 'rb'))
     r = pickle.load(open('{}{}_tpfs.p'.format(output_dir, name.replace(' ', '')), 'rb'))
     ar, er, diff, ediff = r['ar'], r['er'], r['diff'], r['ediff']
-    thumb = np.nanmedian(ar[:, :, :, 0] - diff[:, :, :, 0], axis=0)
-    stack = 1
+    diff[diff==0] = np.nan
+    ediff[diff==0] = np.nan
 
+    thumb = np.nanmedian(ar[:, :, :, 0] - diff[:, :, :, 0], axis=0)
+
+    stack = 1
     if np.nanmax(thumb) < 100:
         log.warning('Faint asteroid.')
 #        log.warning('Not using the lead/lag correction.')
@@ -481,7 +485,6 @@ def build_products(name, campaign, dir, movie=False, lead_lag_correction=True):
     final_lcs = {}
     apers = np.zeros((ar.shape[1], ar.shape[2], len(percs)))
     ts = np.asarray([timetables[i].jd for i in range(ar.shape[-1])])
-    background_quality = np.ones((len(percs), ar.shape[0]), dtype=bool)
     all_pixels = np.ones((len(percs), ar.shape[0]), dtype=bool)
 
 
@@ -532,29 +535,34 @@ def build_products(name, campaign, dir, movie=False, lead_lag_correction=True):
                          for t, npix_a1 in zip(ts, npix_a)])
 
 
+#        import pdb; pdb.set_trace()
         # Can you USE the lead/lag apertures?
         # Must have enough pixels in the aperture (80%)
         # Must have at least 50% of lead/lag apertures available
+        lead_quality =  np.ones(ar.shape[0], dtype=bool)
         if lead_lag_correction:
-            lead_quality = (interp_npix_a[1:] > np.atleast_2d(interp_npix_a[1:].max(axis=1)).T*0.8).sum(axis=0) > (len(lcs) - 1)*0.5
-        else:
-            lead_quality =  np.ones(ar.shape[0], dtype=bool)
+            test = (interp_npix_a[1:] > np.atleast_2d(interp_npix_a[1:].max(axis=1)).T*0.8).sum(axis=0) > (len(lcs) - 1)*0.5
+            if test.sum() < 0.3 * (npix_a[0] > 1).sum():
+                log.warn('Lead lag correction looks poor. Turning off.')
+                lead_lag_correction=False
+            else:
+                lead_quality = test
 
         # Do the lag apertures pass?
         background_quality = np.ones(lcs.shape[1], dtype=bool)
+        if lead_lag_correction:
+            median = np.nanmedian(interp_lcs[1:, :], axis=0)#, lead_quality & all_pixels], axis=0)
+            # Too much flux in the background is BAD, clip it out
+            background_quality[np.abs(median) > 1000] = False
 
-        median = np.nanmedian(interp_lcs[1:, :], axis=0)#, lead_quality & all_pixels], axis=0)
-        # Too much flux in the background is BAD, clip it out
-        background_quality[np.abs(median) > 1000] = False
+            # What's left? Any outliers?
+            _, median1, std1 = sigma_clipped_stats(median, sigma=3, iters=2, mask = ~(lead_quality & all_pixels[0,:] & background_quality))
+            background_quality &= np.abs(median - median1) < 3 * std1
 
-        # What's left? Any outliers?
-        _, median1, std1 = sigma_clipped_stats(median, sigma=3, iters=2, mask = ~(lead_quality & all_pixels[0,:] & background_quality))
-        background_quality &= np.abs(median - median1) < 3 * std1
-
-        # Are there noisy time stamps?
-        std = np.nanstd(interp_lcs[1:,:], axis=0)
-        _, median1, std1 = sigma_clipped_stats(std, sigma=3, iters=2, mask= ~(lead_quality & all_pixels[0,:] & background_quality))
-        background_quality &= np.abs(std - median1) < 3 * std1
+            # Are there noisy time stamps?
+            std = np.nanstd(interp_lcs[1:,:], axis=0)
+            _, median1, std1 = sigma_clipped_stats(std, sigma=3, iters=2, mask= ~(lead_quality & all_pixels[0,:] & background_quality))
+            background_quality &= np.abs(std - median1) < 3 * std1
 
         apermean[idx] = np.nansum(lcs[0, lead_quality & all_pixels[idx] & background_quality])
         apernpoints[idx] = len(lcs[0, lead_quality & all_pixels[idx] & background_quality])
@@ -563,8 +571,9 @@ def build_products(name, campaign, dir, movie=False, lead_lag_correction=True):
                           'background_quality' : background_quality, 'all_pixels' : all_pixels[idx, :],
                           'lead_quality' : lead_quality, 'npix_in_aper':npix_a[0,:], 'aper':aper}
 
-    best_mean = np.where(percs == percs[np.gradient(apermean/apermean[0])
-                                        <= np.median(np.gradient(apermean/apermean[0]))][0])[0][0]
+    grad = np.gradient(apermean/np.nanmin(apermean[apermean!=0]))
+    best_mean = np.where(percs == percs[grad
+                                        <= np.median(grad[grad!=0])][0])[0][0]
     # Shouldn't waste all the data points...
     npoints = np.where(percs == np.min(percs[apernpoints/np.max(apernpoints) > 0.7]))[0][0]
     best = np.min([best_mean, npoints])
