@@ -453,7 +453,7 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
     return ar, er, diff_ar, diff_er
 
 
-def build_products(name, campaign, dir, movie=False, lead_lag_correction=True):
+def build_products(name, campaign, dir, movie=False):
     output_dir = '{}{}/'.format(dir, name.replace(' ', ''))
     timetables = pickle.load(open('{}{}_timetables.p'.format(
         output_dir, name.replace(' ', '')), 'rb'))
@@ -485,13 +485,12 @@ def build_products(name, campaign, dir, movie=False, lead_lag_correction=True):
     final_lcs = {}
     apers = np.zeros((ar.shape[1], ar.shape[2], len(percs)))
     ts = np.asarray([timetables[i].jd for i in range(ar.shape[-1])])
-    all_pixels = np.ones((len(percs), ar.shape[0]), dtype=bool)
-
 
 
     apermean = np.zeros(len(percs))
     apernpoints = np.zeros(len(percs))
     for idx, perc in enumerate(percs):
+        lead_lag_correction = True
         # Build the aperture out of the percentiles
         aper = (thumb > np.nanpercentile(thumb, perc))
         fix_aperture(aper)
@@ -502,7 +501,7 @@ def build_products(name, campaign, dir, movie=False, lead_lag_correction=True):
 
         # Find how many pixels drop out due to nans or traveling over the edge of the tpf
         npix_a = np.asarray([np.sum(np.isfinite(ar[:, :, :, i] - diff[:, :, :, i]) * np.atleast_3d(aper).transpose([2, 0, 1]), axis=(1, 2)) for i in range(ar.shape[-1])], dtype=float)
-        all_pixels[idx, :] = npix_a[0] >= np.nanmax(npix_a)*0.8
+        all_pixels = npix_a[0] >= np.nanmax(npix_a)*0.8
 #        npix_a /= np.nanmax(npix_a)
 
 
@@ -556,20 +555,21 @@ def build_products(name, campaign, dir, movie=False, lead_lag_correction=True):
             background_quality[np.abs(median) > 1000] = False
 
             # What's left? Any outliers?
-            _, median1, std1 = sigma_clipped_stats(median, sigma=3, iters=2, mask = ~(lead_quality & all_pixels[0,:] & background_quality))
+            _, median1, std1 = sigma_clipped_stats(median, sigma=3, iters=2, mask = ~(lead_quality & all_pixels & background_quality))
             background_quality &= np.abs(median - median1) < 3 * std1
 
             # Are there noisy time stamps?
             std = np.nanstd(interp_lcs[1:,:], axis=0)
-            _, median1, std1 = sigma_clipped_stats(std, sigma=3, iters=2, mask= ~(lead_quality & all_pixels[0,:] & background_quality))
+            _, median1, std1 = sigma_clipped_stats(std, sigma=3, iters=2, mask= ~(lead_quality & all_pixels & background_quality))
             background_quality &= np.abs(std - median1) < 3 * std1
 
-        apermean[idx] = np.nansum(lcs[0, lead_quality & all_pixels[idx] & background_quality])
-        apernpoints[idx] = len(lcs[0, lead_quality & all_pixels[idx] & background_quality])
+        apermean[idx] = np.nansum(lcs[0, lead_quality & all_pixels & background_quality])
+        apernpoints[idx] = len(lcs[0, lead_quality & all_pixels & background_quality])
         final_lcs[idx] = {'t': ts[0, :], 'lc': lcs[0, :],
                           'elc': elcs[0, :], 'npix': npix, 'perc': perc,
-                          'background_quality' : background_quality, 'all_pixels' : all_pixels[idx, :],
-                          'lead_quality' : lead_quality, 'npix_in_aper':npix_a[0,:], 'aper':aper}
+                          'background_quality' : background_quality, 'all_pixels' : all_pixels,
+                          'lead_quality' : lead_quality, 'npix_in_aper':npix_a[0,:], 'aper':aper,
+                          'lead_lag_correction':lead_lag_correction}
 
     grad = np.gradient(apermean/np.nanmin(apermean[apermean!=0]))
     best_mean = np.where(percs == percs[grad
@@ -581,7 +581,7 @@ def build_products(name, campaign, dir, movie=False, lead_lag_correction=True):
                               'elc': final_lcs[best]['elc'], 'npix': final_lcs[best]['npix'], 'perc': final_lcs[best]['perc'],
                               'background_quality':final_lcs[best]['background_quality'], 'all_pixels':final_lcs[best]['all_pixels'],
                               'lead_quality':final_lcs[best]['lead_quality'], 'npix_in_aper':final_lcs[best]['npix_in_aper'],
-                              'aper':final_lcs[best]['aper']}
+                              'aper':final_lcs[best]['aper'],'lead_lag_correction':final_lcs[best]['lead_lag_correction']}
 
 
     pickle.dump(final_lcs, open('{}{}_lcs.p'.format(output_dir, name.replace(' ', '')), 'wb'))
@@ -630,6 +630,7 @@ def build_products(name, campaign, dir, movie=False, lead_lag_correction=True):
     hdu.header['EXTNAME'] = 'BESTAPER'
     hdu.header['PERC'] = '{}'.format(final_lcs[i]['perc'])
     hdu.header['NPIX'] = '{}'.format(final_lcs[i]['npix'])
+    hdu.header['LEADFLAG'] = '{}'.format(final_lcs[i]['lead_lag_correction'])
     hdus.append(hdu)
 
     for i in range(list(final_lcs.keys())[-2]):
@@ -650,6 +651,7 @@ def build_products(name, campaign, dir, movie=False, lead_lag_correction=True):
         hdu.header['EXTNAME'] = 'PERC{}'.format(final_lcs[i]['perc'])
         hdu.header['PERC'] = '{}'.format(final_lcs[i]['perc'])
         hdu.header['NPIX'] = '{}'.format(final_lcs[i]['npix'])
+        hdu.header['LEADFLAG'] = '{}'.format(final_lcs[i]['lead_lag_correction'])
         hdus.append(hdu)
     hdul = fits.HDUList(hdus)
     hdul.writeto(
@@ -701,7 +703,7 @@ def run(name, campaign=None, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir)
     if campaign is None:
-        mast, campaign = find_mast_files_using_CAF(name)
+        mast, campaign = find_mast_files_using_CAF(name, campaign)
     timetables = get_radec(name, campaign, aperture_radius, plot=False, img_dir=output_dir)
     pickle.dump(timetables, open('{}{}_timetables.p'.format(
         output_dir, name.replace(' ', '')), 'wb'))
@@ -717,6 +719,7 @@ def run(name, campaign=None, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-
     mast = mast[ok]
     mast.to_csv('{}{}_mast.csv'.format(output_dir, name.replace(' ', '')), index=False)
     ar, er, diff, ediff = make_arrays(timetables, mast, aperture_radius)
+    import pdb;pdb.set_trace()
     if np.all(~np.isfinite(diff)):
         diff[:, :, :, :] = 0
         ediff[:, :, :, :] = 0

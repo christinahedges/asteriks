@@ -115,7 +115,7 @@ def find_GO_proposal(name):
         mask[idx] = np.any(np.asarray([name.split('.')[-1].lower().replace(' ','') == i.lower().replace(' ','') for i in m]))
         mask[idx] |= name.split('.')[-1].lower().replace(' ','') == n.lower().replace(' ','')
     IDs = np.asarray([m for m in mov[mask].IDS])
-    IDs = IDs[[~isinstance(i, float) for i in IDs]]
+    IDs = IDs[[not isinstance(i, float) for i in IDs]]
     return('|'.join(IDs))
 
 def find_PIs(name):
@@ -136,7 +136,7 @@ def _mast_fail(chunk_df):
     fail |= (np.asarray(chunk_df)[0][0] == '''<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"''')
     return fail
 
-def find_mast_files_using_CAF(name):
+def find_mast_files_using_CAF(name, desired_campaign=None):
     '''Find all the custom aperture files for a specific moving object.
 
     Parameters
@@ -194,14 +194,22 @@ def find_mast_files_using_CAF(name):
         raise CAFFailure('Could not find a CAF file for this moving body.')
     if len(mast) == 0:
         raise CAFFailure('Could not find a CAF file for this moving body.')
-    campaign = np.asarray(np.unique(mast.campaign), dtype=float)
+
+    campaign = np.asarray(mast.campaign, dtype=float)
     for idx in range(len(campaign)):
         if campaign[idx] > 80:
             campaign[idx] = campaign[idx] // 10
-    campaign = np.unique(campaign)
-    if len(campaign) > 1:
-        raise CampaignFailure('This object is available in more than 1 campaign. Please specify.')
-    return mast, int(campaign)
+
+    if desired_campaign is not None:
+        if not (campaign == desired_campaign).any():
+            raise CampaignFailure('This object is not available in Campaign {}.'
+                                  ''.format(desired_campaign))
+        mast = mast[campaign==desired_campaign].reset_index(drop=True)
+
+    if len(np.unique(mast.campaign)) > 1:
+        raise CampaignFailure('This object is available in more than 1 campaign. Please specify.'
+                              ' Campaigns: {}'.format(campaign))
+    return mast, int(np.unique(mast.campaign))
 
 
 def find_moving_objects_in_campaign(campaign=2):
@@ -307,7 +315,7 @@ def clean_mast_file(mast, campaign):
 
 def get_mast(name, campaign=None, timetables=None):
     try:
-        mast, campaign = find_mast_files_using_CAF(name)
+        mast, campaign = find_mast_files_using_CAF(name, campaign)
         mast = clean_mast_file(mast, campaign)
     except CAFFailure:
         if campaign is None:
