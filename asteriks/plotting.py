@@ -61,13 +61,12 @@ def stack_array(dat, n=3):
 def two_panel_movie(dat, dif, title='', out='out.mp4', scale='linear', stack=1, **kwargs):
     '''Create an mp4 movie of a 3D array
     '''
-
     if scale == 'log':
         data = np.log10(stack_array(np.copy(dat), stack))
         diff = np.log10(stack_array(np.copy(dif), stack))
     else:
-        data = stack_array(dat)
-        diff = stack_array(dif)
+        data = stack_array(np.copy(dat), stack)
+        diff = stack_array(np.copy(dif), stack)
     fig, axs = plt.subplots(1, 2, figsize=(8, 4.5))
     for ax in axs:
         ax.set_facecolor('#ecf0f1')

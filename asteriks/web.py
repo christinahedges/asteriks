@@ -74,13 +74,15 @@ def create_asteroid_page_html(name, dir):
     mp4 = '{0}{1}/{1}.mp4'.format(dir, name.replace(' ', ''))
     shutil.copyfile(img, '{}/{}_lc.png'.format(page_dir, name.replace(' ', '')))
     shutil.copyfile(mp4, '{}/{}.mp4'.format(page_dir, name.replace(' ', '')))
-    fitsfile = glob('{0}{1}/*.fits'.format(dir, name.replace(' ', '')))[0]
+    fitsfile = glob('{0}{1}/*lightcurve*.fits'.format(dir, name.replace(' ', '')))[0]
     shutil.copyfile(fitsfile, '{}/{}'.format(page_dir, fitsfile.split('/')[-1]))
+    tpffitsfile = glob('{0}{1}/*tpf*.fits'.format(dir, name.replace(' ', '')))[0]
+    shutil.copyfile(tpffitsfile, '{}/{}'.format(page_dir, tpffitsfile.split('/')[-1]))
     img = '{}_lc.png'.format(name.replace(' ', ''))
     mp4 = '{}.mp4'.format(name.replace(' ', ''))
 
     size1 = '{:.2}'.format(os.path.getsize(fitsfile)/1e6)
-    size2 = '{:.2}'.format(os.path.getsize('{}/{}.mp4'.format(page_dir, name.replace(' ', '')))/1e6)
+    size2 = '{:.2}'.format(os.path.getsize(tpffitsfile)/1e6)
     mast = pd.read_csv('{0}{1}/{1}_mast.csv'.format(dir, name.replace(' ', '')))
     campaign = ', '.join(np.asarray(mast.campaign.unique(), dtype=str))
     lcs = pickle.load(open('{0}{1}/{1}_lcs.p'.format(dir, name.replace(' ', '')), 'rb'))
@@ -107,7 +109,7 @@ def create_asteroid_page_html(name, dir):
         'size1': size1,
         'size2': size2,
         'download1': fitsfile.split('/')[-1],
-        'download2': '{}.mp4'.format(name.replace(' ', '')),
+        'download2': tpffitsfile.split('/')[-1],
         'mp4': mp4,
         'intro_string': intro_string,
         'img': img,

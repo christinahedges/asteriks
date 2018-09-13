@@ -406,7 +406,8 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
             # Only use the times where we are close to the aperture.
             for coord in coords:
                 ok |= tablecoord.separation(coord) < PIXEL_TOL*4*u.arcsec
-
+#            if ok.any():
+#                import pdb;pdb.set_trace()
             # Pair down the table.
             tab = obj[['cadenceno', 'Column_{:02}_{:02}'.format(
                 campaign, channel), 'Row_{:02}_{:02}'.format(int(campaign), int(channel)), 'velocity']][ok]
@@ -454,191 +455,192 @@ def make_arrays(objs, mast, n, diff_tol=5, difference=True):
 
 
 def build_products(name, campaign, dir, movie=False):
-    output_dir = '{}{}/'.format(dir, name.replace(' ', ''))
-    timetables = pickle.load(open('{}{}_timetables.p'.format(
-        output_dir, name.replace(' ', '')), 'rb'))
-    r = pickle.load(open('{}{}_tpfs.p'.format(output_dir, name.replace(' ', '')), 'rb'))
-    ar, er, diff, ediff = r['ar'], r['er'], r['diff'], r['ediff']
-    diff[diff==0] = np.nan
-    ediff[diff==0] = np.nan
-
-    thumb = np.nanmedian(ar[:, :, :, 0] - diff[:, :, :, 0], axis=0)
-
-    stack = 1
-    if np.nanmax(thumb) < 100:
-        log.warning('Faint asteroid.')
-#        log.warning('Not using the lead/lag correction.')
-        log.warning('Stacking movie')
-        thumb = np.nanmedian(stack_array(ar[:, :, :, 0] - diff[:, :, :, 0]), axis=0)
-#        lead_lag_correction = False
-        stack = 20
-
-    if movie:
-        with plt.style.context(('ggplot')):
-            ok = np.nansum(ar[:, :, :, 0], axis=(1, 2)) != 0
-            ok[np.where(ok == True)[0][0]:np.where(ok == True)[0][-1]] = True
-            two_panel_movie(ar[ok, :, :, 0], ar[ok, :, :, 0] - diff[ok, :, :, 0],
-                            title='', out='{}{}.mp4'.format(output_dir, name.replace(' ', '')), scale='linear', vmin=0,
-                            vmax=np.max([np.nanmax(thumb), 300]), stack=stack)
-
-    percs = np.arange(80, 100, 2)[::-1]
-    final_lcs = {}
-    apers = np.zeros((ar.shape[1], ar.shape[2], len(percs)))
-    ts = np.asarray([timetables[i].jd for i in range(ar.shape[-1])])
+#    with silence():
+        output_dir = '{}{}/'.format(dir, name.replace(' ', ''))
+        timetables = pickle.load(open('{}{}_timetables.p'.format(
+            output_dir, name.replace(' ', '')), 'rb'))
+        r = pickle.load(open('{}{}_tpfs.p'.format(output_dir, name.replace(' ', '')), 'rb'))
 
 
-    apermean = np.zeros(len(percs))
-    apernpoints = np.zeros(len(percs))
-    for idx, perc in enumerate(percs):
-        lead_lag_correction = True
-        # Build the aperture out of the percentiles
-        aper = (thumb > np.nanpercentile(thumb, perc))
-        fix_aperture(aper)
-        if aper.sum() == 0:
-            aper = (thumb > np.nanpercentile(thumb, perc))
-        apers[:, :, idx] = aper
-        npix = np.nansum(aper)
+        ar, er, diff, ediff = r['ar'], r['er'], r['diff'], r['ediff']
+        diff[diff==0] = np.nan
+        ediff[diff==0] = np.nan
 
-        # Find how many pixels drop out due to nans or traveling over the edge of the tpf
-        npix_a = np.asarray([np.sum(np.isfinite(ar[:, :, :, i] - diff[:, :, :, i]) * np.atleast_3d(aper).transpose([2, 0, 1]), axis=(1, 2)) for i in range(ar.shape[-1])], dtype=float)
-        all_pixels = npix_a[0] >= np.nanmax(npix_a)*0.8
-#        npix_a /= np.nanmax(npix_a)
+        thumb = np.nanmedian(ar[:, :, :, 0] - diff[:, :, :, 0], axis=0)
 
+        # Get rid of bright patches
+        nans = np.isfinite(ar[:, :, :, 0] - diff[:, :, :, 0]).sum(axis=0)
+        nans[nans > np.percentile(nans[nans!=0], 20)] = 0
+        nans[nans != 0] = 1
+        nans = nans.astype(bool)
+        thumb[nans] = np.nan
 
+        stack = 1
+        if np.nanmax(thumb) < 100:
+            log.warning('Faint asteroid.')
+    #        log.warning('Not using the lead/lag correction.')
+            log.warning('Stacking movie')
+            thumb = np.nanmedian(stack_array(ar[:, :, :, 0] - diff[:, :, :, 0]), axis=0)
+            stack = 20
 
-        # Build all light curves
-        lcs = np.asarray([np.nansum((ar[:, :, :, i] - diff[:, :, :, i]) *
-                                    np.atleast_3d(aper).T, axis=(1, 2)) for i in range(ar.shape[-1])])
-        elcs = np.asarray([np.nansum((er[:, :, :, i]**2 + ediff[:, :, :, i]**2) *
-                                    np.atleast_3d(aper).T, axis=(1, 2)) for i in range(ar.shape[-1])])**0.5
+        if movie:
+            with plt.style.context(('ggplot')):
+                ok = np.nansum(ar[:, :, :, 0], axis=(1, 2)) != 0
+                ok[np.where(ok == True)[0][0]:np.where(ok == True)[0][-1]] = True
+                two_panel_movie(ar[ok, :, :, 0], ar[ok, :, :, 0] - diff[ok, :, :, 0],
+                                title='', out='{}{}.mp4'.format(output_dir, name.replace(' ', '')), scale='linear', vmin=0,
+                                vmax=np.max([np.nanmax(thumb), 300]), stack=stack)
 
-        lcs[lcs==0] = np.nan
-        elcs[elcs==0] = np.nan
-
-        # Build background
-        bkg_perc = np.nanpercentile((ar), 15)
-        bkg_aper = (ar) < bkg_perc
-        bkgs = np.asarray([np.nansum((ar[:, :, :, i] - diff[:, :, :, i]) *
-                                    (bkg_aper[:, :, :, i] & ~np.atleast_3d(aper).T) , axis=(1, 2)) for i in range(ar.shape[-1])])
-        ebkgs = np.asarray([np.nansum((er[:, :, :, i]**2 + ediff[:, :, :, i]**2) *
-                                    (bkg_aper[:, :, :, i] & ~np.atleast_3d(aper).T) , axis=(1, 2)) for i in range(ar.shape[-1])])**0.5
-        bkgs/= np.asarray([np.nansum((bkg_aper[:, :, :, i] & ~np.atleast_3d(aper).T) , axis=(1, 2)) for i in range(ar.shape[-1])])
-        ebkgs/= np.asarray([np.nansum((bkg_aper[:, :, :, i] & ~np.atleast_3d(aper).T) , axis=(1, 2)) for i in range(ar.shape[-1])])
-
-        # Interpolate the remaining apertures onto the same time frame as the object
-        interp_lcs = np.asarray([np.interp(ts[0, :], t, lc)
-                                 for t, lc in zip(ts, lcs)])
-        interp_elcs = np.asarray([np.interp(ts[0, :], t, elc)
-                                 for t, elc in zip(ts, elcs)])
-        interp_npix_a = np.asarray([np.interp(ts[0, :], t, npix_a1)
-                         for t, npix_a1 in zip(ts, npix_a)])
+        percs = np.arange(80, 100, 2)[::-1]
+        final_lcs = {}
+        apers = np.zeros((ar.shape[1], ar.shape[2], len(percs)))
+        ts = np.asarray([timetables[i].jd for i in range(ar.shape[-1])])
 
 
-#        import pdb; pdb.set_trace()
-        # Can you USE the lead/lag apertures?
-        # Must have enough pixels in the aperture (80%)
-        # Must have at least 50% of lead/lag apertures available
-        lead_quality =  np.ones(ar.shape[0], dtype=bool)
-        if lead_lag_correction:
-            test = (interp_npix_a[1:] > np.atleast_2d(interp_npix_a[1:].max(axis=1)).T*0.8).sum(axis=0) > (len(lcs) - 1)*0.5
-            if test.sum() < 0.3 * (npix_a[0] > 1).sum():
-                log.warn('Lead lag correction looks poor. Turning off.')
-                lead_lag_correction=False
+        apermean = np.zeros(len(percs))
+        apernpoints = np.zeros(len(percs))
+        for idx, perc in enumerate(percs):
+            lead_lag_correction = True
+            # Build the aperture out of the percentiles
+            aper = (np.nan_to_num(thumb) > np.nanpercentile(thumb, perc))
+            fix_aperture(aper)
+            if aper.sum() == 0:
+                aper = (thumb > np.nanpercentile(thumb, perc))
+            apers[:, :, idx] = aper
+            npix = np.nansum(aper)
+
+            # Find how many pixels drop out due to nans or traveling over the edge of the tpf
+            npix_a = np.asarray([np.sum(np.isfinite(ar[:, :, :, i] - diff[:, :, :, i]) * np.atleast_3d(aper).transpose([2, 0, 1]), axis=(1, 2)) for i in range(ar.shape[-1])], dtype=float)
+            all_pixels = npix_a[0] >= np.nanmax(npix_a)*0.8
+    #        npix_a /= np.nanmax(npix_a)
+
+
+
+            # Build all light curves
+            lcs = np.asarray([np.nansum((ar[:, :, :, i] - diff[:, :, :, i]) *
+                                        np.atleast_3d(aper).T, axis=(1, 2)) for i in range(ar.shape[-1])])
+            elcs = np.asarray([np.nansum((er[:, :, :, i]**2 + ediff[:, :, :, i]**2) *
+                                        np.atleast_3d(aper).T, axis=(1, 2)) for i in range(ar.shape[-1])])**0.5
+
+            lcs[lcs==0] = np.nan
+            elcs[elcs==0] = np.nan
+
+            # Build background
+            bkg_perc = np.nanpercentile((ar), 15)
+            bkg_aper = np.nan_to_num(ar) < bkg_perc
+            bkgs = np.asarray([np.nansum((ar[:, :, :, i] - diff[:, :, :, i]) *
+                                        (bkg_aper[:, :, :, i] & ~np.atleast_3d(aper).T) , axis=(1, 2)) for i in range(ar.shape[-1])])
+            ebkgs = np.asarray([np.nansum((er[:, :, :, i]**2 + ediff[:, :, :, i]**2) *
+                                        (bkg_aper[:, :, :, i] & ~np.atleast_3d(aper).T) , axis=(1, 2)) for i in range(ar.shape[-1])])**0.5
+            bkgs /= np.asarray([np.nansum((bkg_aper[:, :, :, i] & ~np.atleast_3d(aper).T) , axis=(1, 2)) for i in range(ar.shape[-1])])
+            ebkgs /= np.asarray([np.nansum((bkg_aper[:, :, :, i] & ~np.atleast_3d(aper).T) , axis=(1, 2)) for i in range(ar.shape[-1])])
+
+            # Interpolate the remaining apertures onto the same time frame as the object
+            interp_lcs = np.asarray([np.interp(ts[0, :], t, lc)
+                                     for t, lc in zip(ts, lcs)])
+            interp_elcs = np.asarray([np.interp(ts[0, :], t, elc)
+                                     for t, elc in zip(ts, elcs)])
+            interp_npix_a = np.asarray([np.interp(ts[0, :], t, npix_a1)
+                             for t, npix_a1 in zip(ts, npix_a)])
+
+
+    #        import pdb; pdb.set_trace()
+            # Can you USE the lead/lag apertures?
+            # Must have enough pixels in the aperture (80%)
+            # Must have at least 50% of lead/lag apertures available
+            lead_quality = np.ones(ar.shape[0], dtype=bool)
+            if lead_lag_correction:
+                test = (interp_npix_a[1:] > np.atleast_2d(interp_npix_a[1:].max(axis=1)).T*0.8).sum(axis=0) > (len(lcs) - 1)*0.5
+                if test.sum() < 0.3 * (npix_a[0] > 1).sum():
+                    log.warn('Lead lag correction looks poor. Turning off.')
+                    lead_lag_correction = False
+                else:
+                    lead_quality = test
+
+            # remove timestamps where the leading/lagging apertures are
+            # contaminating the object/each other.
+            lead_quality &= ~timetables[0]['CONTAMINATEDAPERTUREFLAG']
+
+
+            # Do the lag apertures pass?
+            background_quality = np.ones(lcs.shape[1], dtype=bool)
+            if lead_lag_correction:
+                median = np.nanmedian(interp_lcs[1:, :], axis=0)#, lead_quality & all_pixels], axis=0)
+                median_err =  (np.nansum(interp_elcs[1:, :]**2, axis=0)**0.5)/np.nansum(np.isfinite(interp_lcs[1:, :]), axis=0)#, lead_quality & all_pixels], axis=0)
+                # Too much flux in the background is BAD, clip it out
+                background_quality[np.abs(np.nan_to_num(median)) > 1000] = False
+
+                # What's left? Any outliers?
+                _, median1, std1 = sigma_clipped_stats(median, sigma=3, iters=2, mask = ~(lead_quality & all_pixels & background_quality))
+                background_quality &= np.abs(np.nan_to_num(median - median1)) < 3 * std1
+
+                # Are there noisy time stamps?
+                std = np.nanstd(interp_lcs[1:,:], axis=0)
+                _, median1, std1 = sigma_clipped_stats(std, sigma=3, iters=2, mask= ~(lead_quality & all_pixels & background_quality))
+                background_quality &= np.abs(np.nan_to_num(std - median1)) < 3 * std1
             else:
-                lead_quality = test
+                median = np.zeros(len(lcs[0, :])) * np.nan
+                median_err = np.zeros(len(lcs[0, :])) * np.nan
 
-        # Do the lag apertures pass?
-        background_quality = np.ones(lcs.shape[1], dtype=bool)
-        if lead_lag_correction:
-            median = np.nanmedian(interp_lcs[1:, :], axis=0)#, lead_quality & all_pixels], axis=0)
-            # Too much flux in the background is BAD, clip it out
-            background_quality[np.abs(median) > 1000] = False
+            apermean[idx] = np.nansum(lcs[0, lead_quality & all_pixels & background_quality])
+            apernpoints[idx] = len(lcs[0, lead_quality & all_pixels & background_quality])
+            final_lcs[idx] = {'t': ts[0, :], 'lc': lcs[0, :],
+                              'elc': elcs[0, :], 'npix': npix, 'perc': perc, 'average_background':median,
+                              'average_background_err':median_err,
+                              'background_quality' : background_quality, 'all_pixels' : all_pixels,
+                              'lead_quality' : lead_quality, 'npix_in_aper':npix_a[0,:], 'aper':aper,
+                              'lead_lag_correction':lead_lag_correction}
 
-            # What's left? Any outliers?
-            _, median1, std1 = sigma_clipped_stats(median, sigma=3, iters=2, mask = ~(lead_quality & all_pixels & background_quality))
-            background_quality &= np.abs(median - median1) < 3 * std1
+        #grad = np.gradient(apermean/np.nanmin(apermean[apermean!=0]))
+        #best_mean = np.where(percs == percs[grad
+    #                                        <= np.median(grad[grad!=0])][0])[0][0]
+        # Shouldn't waste all the data points...
+        #npoints = np.where(percs == np.min(percs[apernpoints/np.max(apernpoints) > 0.7]))[0][0]
+        #best = np.min([best_mean, npoints])
 
-            # Are there noisy time stamps?
-            std = np.nanstd(interp_lcs[1:,:], axis=0)
-            _, median1, std1 = sigma_clipped_stats(std, sigma=3, iters=2, mask= ~(lead_quality & all_pixels & background_quality))
-            background_quality &= np.abs(std - median1) < 3 * std1
-
-        apermean[idx] = np.nansum(lcs[0, lead_quality & all_pixels & background_quality])
-        apernpoints[idx] = len(lcs[0, lead_quality & all_pixels & background_quality])
-        final_lcs[idx] = {'t': ts[0, :], 'lc': lcs[0, :],
-                          'elc': elcs[0, :], 'npix': npix, 'perc': perc,
-                          'background_quality' : background_quality, 'all_pixels' : all_pixels,
-                          'lead_quality' : lead_quality, 'npix_in_aper':npix_a[0,:], 'aper':aper,
-                          'lead_lag_correction':lead_lag_correction}
-
-    grad = np.gradient(apermean/np.nanmin(apermean[apermean!=0]))
-    best_mean = np.where(percs == percs[grad
-                                        <= np.median(grad[grad!=0])][0])[0][0]
-    # Shouldn't waste all the data points...
-    npoints = np.where(percs == np.min(percs[apernpoints/np.max(apernpoints) > 0.7]))[0][0]
-    best = np.min([best_mean, npoints])
-    final_lcs['BEST'] = {'t': final_lcs[best]['t'], 'lc': final_lcs[best]['lc'],
-                              'elc': final_lcs[best]['elc'], 'npix': final_lcs[best]['npix'], 'perc': final_lcs[best]['perc'],
-                              'background_quality':final_lcs[best]['background_quality'], 'all_pixels':final_lcs[best]['all_pixels'],
-                              'lead_quality':final_lcs[best]['lead_quality'], 'npix_in_aper':final_lcs[best]['npix_in_aper'],
-                              'aper':final_lcs[best]['aper'],'lead_lag_correction':final_lcs[best]['lead_lag_correction']}
+        penalty = ((1 - apernpoints/apernpoints.max())**2 + (1 - apermean/apermean.max())**2)**0.5
+        best = penalty.argmin()
+        best_aper = apers[:, : ,best]
+        final_lcs['BEST'] = final_lcs[best]
 
 
-    pickle.dump(final_lcs, open('{}{}_lcs.p'.format(output_dir, name.replace(' ', '')), 'wb'))
-    pickle.dump(apers, open('{}{}_apers.p'.format(output_dir, name.replace(' ', '')), 'wb'))
+        pickle.dump(final_lcs, open('{}{}_lcs.p'.format(output_dir, name.replace(' ', '')), 'wb'))
+        pickle.dump(apers, open('{}{}_apers.p'.format(output_dir, name.replace(' ', '')), 'wb'))
 
-    ra_ar = np.interp(final_lcs[0]['t'], timetables[0].jd, timetables[0].ra)
-    dec_ar = np.interp(final_lcs[0]['t'], timetables[0].jd, timetables[0].dec)
+        ra_ar = np.interp(final_lcs[0]['t'], timetables[0].jd, timetables[0].ra)
+        dec_ar = np.interp(final_lcs[0]['t'], timetables[0].jd, timetables[0].dec)
 
-    i = 'BEST'
-    hdr = fits.Header()
-    hdr['ORIGIN'] = 'NASA/Ames'
-    hdr['DATE'] = Time.now().isot
-    hdr['CREATOR'] = 'asteriks'
-    hdr['TELESCOP'] = 'Kepler'
-    hdr['INSTRUME'] = 'Kepler Photometer'
-    hdr['OBJECT'] = '{}'.format(name)
-    hdr['HLSPNAME'] = 'K2MovingBodies'
-    hdr['HLSPLEAD'] = 'Kepler/K2 GO Office'
-    hdr['EXPSTART'] = Time(final_lcs[i]['t'][0], format='jd').isot
-    hdr['EXPEND'] = Time(final_lcs[i]['t'][-1], format='jd').isot
-    hdr['LDLGCORR'] = lead_lag_correction
-    hdr['VERSION'] = __version__
+        i = 'BEST'
+        hdr = fits.Header()
+        hdr['ORIGIN'] = 'NASA/Ames'
+        hdr['DATE'] = Time.now().isot
+        hdr['CREATOR'] = 'asteriks'
+        hdr['TELESCOP'] = 'Kepler'
+        hdr['INSTRUME'] = 'Kepler Photometer'
+        hdr['OBJECT'] = '{}'.format(name)
+        hdr['HLSPNAME'] = 'K2MovingBodies'
+        hdr['HLSPLEAD'] = 'Kepler/K2 GO Office'
+        hdr['EXPSTART'] = Time(final_lcs[i]['t'][0], format='jd').isot
+        hdr['EXPEND'] = Time(final_lcs[i]['t'][-1], format='jd').isot
+        hdr['LDLGCORR'] = lead_lag_correction
+        hdr['VERSION'] = __version__
 
 
-    # BKG_QUAL : If there is evidence from lead lag that there is a background contaminant, will be False
-    # LEAD_QUAL : If the lead/lag test cannot be completed, will be False
-    # NPIX_QUAL : If there is not at least 80% of the aperture as non-nans, will be False
-    # NPIX_APER : Number of non-NaN pixels in aperture.
+        # BKG_QUAL : If there is evidence from lead lag that there is a background contaminant, will be False
+        # LEAD_QUAL : If the lead/lag test cannot be completed, will be False
+        # NPIX_QUAL : If there is not at least 80% of the aperture as non-nans, will be False
+        # NPIX_APER : Number of non-NaN pixels in aperture.
 
-    primary_hdu = fits.PrimaryHDU(header=hdr)
+        primary_hdu = fits.PrimaryHDU(header=hdr)
 
-    hdus = [primary_hdu]
-    cols = []
-    cols.append(fits.Column(name='TIME', array=(final_lcs[i]['t']), format='D', unit='JD'))
-    cols.append(fits.Column(name='FLUX', array=(final_lcs[i]['lc']), format='E', unit='e-/s'))
-    cols.append(fits.Column(name='FLUX_ERR', array=(final_lcs[i]['elc']), format='E', unit='e-/s'))
-    cols.append(fits.Column(name='RA_OBJ', array=ra_ar, format='E', unit='deg'))
-    cols.append(fits.Column(name='DEC_OBJ', array=dec_ar, format='E', unit='deg'))
-    cols.append(fits.Column(name='LEAD_QUAL', array=final_lcs[i]['lead_quality'], format='L'))
-    cols.append(fits.Column(name='NPIX_QUAL', array=final_lcs[i]['all_pixels'], format='L'))
-    cols.append(fits.Column(name='BKG_QUAL', array=final_lcs[i]['background_quality'], format='L'))
-    cols.append(fits.Column(name='NPIX_APER', array=final_lcs[i]['npix_in_aper'], format='I'))
-
-    cols = fits.ColDefs(cols)
-    hdu = fits.BinTableHDU.from_columns(cols)
-    hdu.header['EXTNAME'] = 'BESTAPER'
-    hdu.header['PERC'] = '{}'.format(final_lcs[i]['perc'])
-    hdu.header['NPIX'] = '{}'.format(final_lcs[i]['npix'])
-    hdu.header['LEADFLAG'] = '{}'.format(final_lcs[i]['lead_lag_correction'])
-    hdus.append(hdu)
-
-    for i in range(list(final_lcs.keys())[-2]):
+        hdus = [primary_hdu]
         cols = []
         cols.append(fits.Column(name='TIME', array=(final_lcs[i]['t']), format='D', unit='JD'))
         cols.append(fits.Column(name='FLUX', array=(final_lcs[i]['lc']), format='E', unit='e-/s'))
-        cols.append(fits.Column(name='FLUX_ERR', array=(
-            final_lcs[i]['elc']), format='E', unit='e-/s'))
+        cols.append(fits.Column(name='FLUX_ERR', array=(final_lcs[i]['elc']), format='E', unit='e-/s'))
+        cols.append(fits.Column(name='BKG_FLUX', array=(final_lcs[i]['average_background']), format='E', unit='e-/s'))
+        cols.append(fits.Column(name='BGFL_ERR', array=(final_lcs[i]['average_background_err']), format='E', unit='e-/s'))
+
         cols.append(fits.Column(name='RA_OBJ', array=ra_ar, format='E', unit='deg'))
         cols.append(fits.Column(name='DEC_OBJ', array=dec_ar, format='E', unit='deg'))
         cols.append(fits.Column(name='LEAD_QUAL', array=final_lcs[i]['lead_quality'], format='L'))
@@ -648,52 +650,81 @@ def build_products(name, campaign, dir, movie=False):
 
         cols = fits.ColDefs(cols)
         hdu = fits.BinTableHDU.from_columns(cols)
-        hdu.header['EXTNAME'] = 'PERC{}'.format(final_lcs[i]['perc'])
+        hdu.header['EXTNAME'] = 'BESTAPER'
         hdu.header['PERC'] = '{}'.format(final_lcs[i]['perc'])
         hdu.header['NPIX'] = '{}'.format(final_lcs[i]['npix'])
         hdu.header['LEADFLAG'] = '{}'.format(final_lcs[i]['lead_lag_correction'])
         hdus.append(hdu)
-    hdul = fits.HDUList(hdus)
-    hdul.writeto(
-        '{0}{1}/hlsp_k2movingbodies_k2_lightcurve_{1}_c{2:02}_v{3}.fits'.format(dir, name.replace(' ',''), campaign, __version__), overwrite=True)
-    with plt.style.context(('ggplot')):
-        fig = plt.figure(figsize=(13.33, 7.5))
-        ax = plt.subplot2grid((6, 3), (1, 0), colspan=2, rowspan=4)
-        plt.scatter(percs, apermean, c='#9b59b6')
-        plt.scatter(percs[best], apermean[best], c='#16a085')
-        plt.axvline(percs[best], c='#16a085', ls='--', zorder=-1)
-        plt.text(percs[best]*1.005, apermean[best]*1.005, 'Best Aperture')
 
-        plt.title('Mean Flux in Aperture')
-        plt.xlabel('Aperture Percentile (%)', fontsize=13)
-        plt.ylabel('Total Light Curve Flux (Counts) [e$^-$/s]', fontsize=13)
-        plt.subplots_adjust(left=0.16)
-        ax = plt.subplot2grid((6, 3), (1, 2), rowspan=4)
-        plt.imshow(thumb, origin='bottom')
-        plt.axis('off')
-        plt.contour(apers[:, :, best], colors='white', levels=[0, 1])
+        for i in range(list(final_lcs.keys())[-2]):
+            cols = []
+            cols.append(fits.Column(name='TIME', array=(final_lcs[i]['t']), format='D', unit='JD'))
+            cols.append(fits.Column(name='FLUX', array=(final_lcs[i]['lc']), format='E', unit='e-/s'))
+            cols.append(fits.Column(name='FLUX_ERR', array=(
+                final_lcs[i]['elc']), format='E', unit='e-/s'))
+            cols.append(fits.Column(name='BKG_FLUX', array=(final_lcs[i]['average_background']), format='E', unit='e-/s'))
+            cols.append(fits.Column(name='BGFL_ERR', array=(
+                final_lcs[i]['average_background_err']), format='E', unit='e-/s'))
 
-        fig.savefig('{}{}_aperture_selection.png'.format(
-            output_dir, name.replace(' ', '')), dpi=150)
+            cols.append(fits.Column(name='RA_OBJ', array=ra_ar, format='E', unit='deg'))
+            cols.append(fits.Column(name='DEC_OBJ', array=dec_ar, format='E', unit='deg'))
+            cols.append(fits.Column(name='LEAD_QUAL', array=final_lcs[i]['lead_quality'], format='L'))
+            cols.append(fits.Column(name='NPIX_QUAL', array=final_lcs[i]['all_pixels'], format='L'))
+            cols.append(fits.Column(name='BKG_QUAL', array=final_lcs[i]['background_quality'], format='L'))
+            cols.append(fits.Column(name='NPIX_APER', array=final_lcs[i]['npix_in_aper'], format='I'))
 
-        fig, ax = plt.subplots(figsize=(13.33, 7.5))
-        mask = final_lcs[best]['background_quality'] & final_lcs[best]['lead_quality'] & final_lcs[best]['all_pixels']
-        ax.errorbar(final_lcs[best]['t'][mask], final_lcs[best]['lc'][mask], final_lcs[best]['elc'][mask],
-                    label='Best Data Quality', marker='.', ls='', markersize=2, color='#9b59b6', zorder=2)
-        ylims = ax.get_ylim()
-        xlims = ax.get_xlim()
-        ax.errorbar(final_lcs[best]['t'], final_lcs[best]['lc'], final_lcs[best]['elc'],
-                    label='Compromised Data Quality', marker='.', ls='', markersize=2, color='#16a085', zorder=1)
-        ax.set_ylim(ylims)
-        ax.set_xlim(xlims)
-        ax.legend()
+            cols = fits.ColDefs(cols)
+            hdu = fits.BinTableHDU.from_columns(cols)
+            hdu.header['EXTNAME'] = 'PERC{}'.format(final_lcs[i]['perc'])
+            hdu.header['PERC'] = '{}'.format(final_lcs[i]['perc'])
+            hdu.header['NPIX'] = '{}'.format(final_lcs[i]['npix'])
+            hdu.header['LEADFLAG'] = '{}'.format(final_lcs[i]['lead_lag_correction'])
+            hdus.append(hdu)
+        hdul = fits.HDUList(hdus)
+        hdul.writeto(
+            '{0}{1}/hlsp_k2movingbodies_k2_lightcurve_{1}_c{2:02}_v{3}.fits'.format(dir, name.replace(' ',''), campaign, __version__), overwrite=True)
 
-        ax.set_xlabel('Time (Julian Date)', fontsize=16)
-        ax.set_ylabel('Flux [e$^-$/s]', fontsize=16)
-        ax.set_title('{}'.format(name), fontsize=20)
-        plt.subplots_adjust(left=0.16)
-        fig.savefig('{}{}_lc.png'.format(output_dir, name.replace(' ', '')), dpi=150)
-        create_asteroid_page_html(name, dir)
+        tpf = build_tpf(r, final_lcs[i]['t'], name, best_aper)
+        tpf.to_fits('{0}{1}/hlsp_k2movingbodies_k2_tpf_{1}_c{2:02}_v{3}.fits'.format(dir, name.replace(' ',''), campaign, __version__), overwrite=True)
+
+        with plt.style.context(('ggplot')):
+            fig = plt.figure(figsize=(13.33, 7.5))
+            ax = plt.subplot2grid((6, 3), (1, 0), colspan=2, rowspan=4)
+            plt.scatter(percs, apermean, c='#9b59b6')
+            plt.scatter(percs[best], apermean[best], c='#16a085')
+            plt.axvline(percs[best], c='#16a085', ls='--', zorder=-1)
+            plt.text(percs[best]*1.005, apermean[best]*1.005, 'Best Aperture')
+
+            plt.title('Mean Flux in Aperture')
+            plt.xlabel('Aperture Percentile (%)', fontsize=13)
+            plt.ylabel('Total Light Curve Flux (Counts) [e$^-$/s]', fontsize=13)
+            plt.subplots_adjust(left=0.16)
+            ax = plt.subplot2grid((6, 3), (1, 2), rowspan=4)
+            plt.imshow(thumb, origin='bottom')
+            plt.axis('off')
+            plt.contour(apers[:, :, best], colors='white', levels=[0.5])
+
+            fig.savefig('{}{}_aperture_selection.png'.format(
+                output_dir, name.replace(' ', '')), dpi=150)
+
+            fig, ax = plt.subplots(figsize=(13.33, 7.5))
+            mask = final_lcs[best]['background_quality'] & final_lcs[best]['lead_quality'] & final_lcs[best]['all_pixels']
+            ax.errorbar(final_lcs[best]['t'][mask], final_lcs[best]['lc'][mask], final_lcs[best]['elc'][mask],
+                        label='Best Data Quality', marker='.', ls='', markersize=2, color='#9b59b6', zorder=2)
+            ylims = ax.get_ylim()
+            xlims = ax.get_xlim()
+            ax.errorbar(final_lcs[best]['t'], final_lcs[best]['lc'], final_lcs[best]['elc'],
+                        label='Compromised Data Quality', marker='.', ls='', markersize=2, color='#16a085', zorder=1)
+            ax.set_ylim(ylims)
+            ax.set_xlim(xlims)
+            ax.legend()
+
+            ax.set_xlabel('Time (Julian Date)', fontsize=16)
+            ax.set_ylabel('Flux [e$^-$/s]', fontsize=16)
+            ax.set_title('{}'.format(name), fontsize=20)
+            plt.subplots_adjust(left=0.16)
+            fig.savefig('{}{}_lc.png'.format(output_dir, name.replace(' ', '')), dpi=150)
+            create_asteroid_page_html(name, dir)
 
 
 def run(name, campaign=None, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-asteriks/output/'):
@@ -719,7 +750,6 @@ def run(name, campaign=None, aperture_radius=8, dir='/Users/ch/K2/projects/hlsp-
     mast = mast[ok]
     mast.to_csv('{}{}_mast.csv'.format(output_dir, name.replace(' ', '')), index=False)
     ar, er, diff, ediff = make_arrays(timetables, mast, aperture_radius)
-    import pdb;pdb.set_trace()
     if np.all(~np.isfinite(diff)):
         diff[:, :, :, :] = 0
         ediff[:, :, :, :] = 0

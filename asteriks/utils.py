@@ -10,12 +10,13 @@ import astropy.units as u
 import logging
 import K2fov
 from astropy.time import Time
+from astropy.io import fits
 from astropy.utils.data import download_file, clear_download_cache
 import pandas as pd
 import pickle
 from . import PACKAGEDIR
 import fitsio
-
+from lightkurve.targetpixelfile import KeplerTargetPixelFileFactory, KeplerTargetPixelFile
 
 log = logging.getLogger('\tASTERIKS ')
 
@@ -231,3 +232,45 @@ def fix_aperture(aper):
     y = y[ok]
     aper *= np.zeros(aper.shape, dtype=bool)
     aper[x, y] = True
+
+
+
+def _make_aperture_extension(self, aperture):
+    """Create the aperture mask extension (i.e. extension #2)."""
+    hdu = fits.ImageHDU(aperture*3)
+
+    # Set the header from the template TPF again
+    template = self._header_template(2)
+    for kw in template:
+        if kw not in ['XTENSION', 'NAXIS1', 'NAXIS2', 'CHECKSUM', 'BITPIX']:
+            try:
+                hdu.header[kw] = (self.keywords[kw],
+                                  self.keywords.comments[kw])
+            except KeyError:
+                hdu.header[kw] = (template[kw],
+                                  template.comments[kw])
+
+    # Override the defaults where necessary
+    for keyword in ['CTYPE1', 'CTYPE2', 'CRPIX1', 'CRPIX2', 'CRVAL1', 'CRVAL2', 'CUNIT1',
+                    'CUNIT2', 'CDELT1', 'CDELT2', 'PC1_1', 'PC1_2', 'PC2_1', 'PC2_2']:
+            hdu.header[keyword] = ""  #override wcs keywords
+    hdu.header['EXTNAME'] = 'APERTURE'
+    return hdu
+
+
+def build_tpf(r, time, name, aper):
+    '''Build a tpf using lightkurve factory
+    '''
+    ok = np.where(np.nansum(r['ar'][:, :, :, 0] - r['diff'][:, :, :, 0], axis=(1,2)) != 0)[0]
+    ar = r['ar'][ok, :, :, 0] - r['diff'][ok, :, :, 0]
+    er = (r['er'][ok, :, :, 0]**2 + r['ediff'][ok, :, :, 0]**2)**0.5
+
+
+    fac = KeplerTargetPixelFileFactory(ar.shape[0],ar.shape[1],ar.shape[2], name)
+    fac.time = time[ok]
+
+    for i, a, e in zip(range(len(ar)), ar, er):
+        fac.add_cadence(i, flux=a, flux_err=e, raw_cnts=r['ar'][ok[i], :, :, 0], flux_bkg=r['diff'][ok[i], :, :, 0], flux_bkg_err=r['ediff'][ok[i], :, :, 0])
+
+    tpf = KeplerTargetPixelFile(fits.HDUList([fac._make_primary_hdu(), fac._make_target_extension(), _make_aperture_extension(fac, aper)]))
+    return tpf

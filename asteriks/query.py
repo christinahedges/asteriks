@@ -205,11 +205,15 @@ def find_mast_files_using_CAF(name, desired_campaign=None):
             raise CampaignFailure('This object is not available in Campaign {}.'
                                   ''.format(desired_campaign))
         mast = mast[campaign==desired_campaign].reset_index(drop=True)
+        campaign = np.asarray(mast.campaign, dtype=float)
+        for idx in range(len(campaign)):
+            if campaign[idx] > 80:
+                campaign[idx] = campaign[idx] // 10
 
-    if len(np.unique(mast.campaign)) > 1:
+    if len(np.unique(campaign)) > 1:
         raise CampaignFailure('This object is available in more than 1 campaign. Please specify.'
                               ' Campaigns: {}'.format(campaign))
-    return mast, int(np.unique(mast.campaign))
+    return mast, int(np.unique(campaign))
 
 
 def find_moving_objects_in_campaign(campaign=2):
