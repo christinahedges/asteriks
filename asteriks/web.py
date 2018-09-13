@@ -76,7 +76,7 @@ def create_asteroid_page_html(name, dir):
     mp4 = '{0}{1}/{1}.mp4'.format(dir, name.replace(' ', ''))
     shutil.copyfile(img, '{}/{}_lc.png'.format(page_dir, name.replace(' ', '')))
     shutil.copyfile(mp4, '{}/{}.mp4'.format(page_dir, name.replace(' ', '')))
-    fitsfile = glob('{0}{1}/*lightcurve*v{}.fits'.format(dir, name.replace(' ', ''), __version__))[0]
+    fitsfile = glob('{0}{1}/*lightcurve*v{2}.fits'.format(dir, name.replace(' ', ''), __version__))[0]
     shutil.copyfile(fitsfile, '{}/{}'.format(page_dir, fitsfile.split('/')[-1]))
     tpffitsfile = glob('{0}{1}/*tpf*v{2}.fits'.format(dir, name.replace(' ', ''), __version__))[0]
     shutil.copyfile(tpffitsfile, '{}/{}'.format(page_dir, tpffitsfile.split('/')[-1]))

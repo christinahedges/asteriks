@@ -544,14 +544,15 @@ def build_products(name, campaign, dir, movie=False):
                              for t, npix_a1 in zip(ts, npix_a)])
 
 
-    #        import pdb; pdb.set_trace()
             # Can you USE the lead/lag apertures?
             # Must have enough pixels in the aperture (80%)
             # Must have at least 50% of lead/lag apertures available
             lead_quality = np.ones(ar.shape[0], dtype=bool)
             if lead_lag_correction:
-                test = (interp_npix_a[1:] > np.atleast_2d(interp_npix_a[1:].max(axis=1)).T*0.8).sum(axis=0) > (len(lcs) - 1)*0.5
-                if test.sum() < 0.3 * (npix_a[0] > 1).sum():
+                max_pix = interp_npix_a[1:].max(axis=1)
+                at_least_80 = interp_npix_a[1:] > np.atleast_2d(interp_npix_a[1:].max(axis=1)).T * 0.8
+                test = np.sum(at_least_80, axis=0) >= (len(lcs) - 1) * 0.5
+                if test.sum() < (0.3 * (npix_a[0] > 1).sum()):
                     log.warn('Lead lag correction looks poor. Turning off.')
                     lead_lag_correction = False
                 else:
@@ -560,7 +561,6 @@ def build_products(name, campaign, dir, movie=False):
             # remove timestamps where the leading/lagging apertures are
             # contaminating the object/each other.
             lead_quality &= ~timetables[0]['CONTAMINATEDAPERTUREFLAG']
-
 
             # Do the lag apertures pass?
             background_quality = np.ones(lcs.shape[1], dtype=bool)
@@ -685,6 +685,7 @@ def build_products(name, campaign, dir, movie=False):
             '{0}{1}/hlsp_k2movingbodies_k2_lightcurve_{1}_c{2:02}_v{3}.fits'.format(dir, name.replace(' ',''), campaign, __version__), overwrite=True)
 
         tpf = build_tpf(r, final_lcs[i]['t'], name, best_aper)
+        tpf.hdu.verify('silentfix')
         tpf.to_fits('{0}{1}/hlsp_k2movingbodies_k2_tpf_{1}_c{2:02}_v{3}.fits'.format(dir, name.replace(' ',''), campaign, __version__), overwrite=True)
 
         with plt.style.context(('ggplot')):

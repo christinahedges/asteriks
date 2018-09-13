@@ -271,6 +271,8 @@ def build_tpf(r, time, name, aper):
 
     for i, a, e in zip(range(len(ar)), ar, er):
         fac.add_cadence(i, flux=a, flux_err=e, raw_cnts=r['ar'][ok[i], :, :, 0], flux_bkg=r['diff'][ok[i], :, :, 0], flux_bkg_err=r['ediff'][ok[i], :, :, 0])
-
-    tpf = KeplerTargetPixelFile(fits.HDUList([fac._make_primary_hdu(), fac._make_target_extension(), _make_aperture_extension(fac, aper)]))
+    target = fac._make_target_extension()
+    target.header['1CRV5P'] = 0
+    target.header['2CRV5P'] = 0
+    tpf = KeplerTargetPixelFile(fits.HDUList([fac._make_primary_hdu(), target, _make_aperture_extension(fac, aper)]))
     return tpf
