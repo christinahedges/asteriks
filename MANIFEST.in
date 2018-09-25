@@ -1,2 +1,2 @@
-include README.rst AUTHORS.rst LICENSE
+include README.rst AUTHORS.md LICENSE
 include asteriks/data/*

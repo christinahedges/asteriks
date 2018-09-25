@@ -20,7 +20,7 @@ setup(name='asteriks',
       version=__version__,
       description="Creates movies of Kepler/K2 asteroids based on target names. "
                   ,
-      long_description=open('README.rst').read(),
+      long_description=open('README.md').read(),
       author='Christina Hedges',
       author_email='christina.l.hedges@nasa.gov',
       license='MIT',

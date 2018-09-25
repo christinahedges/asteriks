@@ -9,3 +9,5 @@ K2ephem
 fitsio
 scipy
 lightkurve
+flask
+jinja2
