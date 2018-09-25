@@ -7,3 +7,4 @@ tqdm
 K2fov
 K2ephem
 fitsio
+scipy
