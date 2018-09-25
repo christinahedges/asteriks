@@ -1,5 +1,6 @@
 # asteriks 0.5
 [![Build Status](https://travis-ci.org/christinahedges/asteriks.svg?branch=master)](https://travis-ci.org/christinahedges/asteriks)
+[![PyPI version](https://badge.fury.io/py/asteriks.svg)](https://badge.fury.io/py/asteriks)
 
 `asteriks` is an open source python to work with Kepler/K2 data and generate light curves of solar system objects.
 
