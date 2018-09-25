@@ -1,7 +1,7 @@
 # asteriks 0.2
 
 
-![Build Status](https://travis-ci.org/christinahedges/asteriks.svg?branch=master)](https://travis-ci.org/christinahedges/asteriks)
+[![Build Status](https://travis-ci.org/christinahedges/asteriks.svg?branch=master)](https://travis-ci.org/christinahedges/asteriks)
 
 
 Module for building asteroid light curves from K2 data. Uses somewhat intelligent difference imaging. Under development.
