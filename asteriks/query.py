@@ -24,7 +24,7 @@ urllib3.disable_warnings()
 
 from .utils import *
 from . import PACKAGEDIR
-from . import plotting
+from .plotting import *
 
 class CAFFailure(Exception):
     # There are no CAF files at MAST to use for this object
