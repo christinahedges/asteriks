@@ -2,7 +2,7 @@
 [![Build Status](https://travis-ci.org/christinahedges/asteriks.svg?branch=master)](https://travis-ci.org/christinahedges/asteriks)
 [![PyPI version](https://badge.fury.io/py/asteriks.svg)](https://badge.fury.io/py/asteriks)
 
-`asteriks` is an open source python to work with Kepler/K2 data and generate light curves of solar system objects.
+`asteriks` is an open source python to work with Kepler/K2 data and generate light curves of solar system objects. `asteriks` is currently under development! If you try to use it and it breaks please open an issue above.
 
 ## Installation
 
@@ -26,6 +26,13 @@ Note if you want to run this and generate movies with this code you will need to
     sudo apt-get install ffmpeg
 ```
 
+## Getting Started
+
+You can start learning to use `asteriks` with the demos in the notebooks folder. (Note the docs folder builds out website!) The demos consist of jupyter notebooks which will show you how to build light curves and target pixel files.
+
+## Data products
+
+You can see all our current published data products [here](https://christinahedges.github.io/asteriks/index.html). 
 
 ## File Formats
 

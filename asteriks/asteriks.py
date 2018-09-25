@@ -21,7 +21,7 @@ from .utils import *
 from .plotting import *
 from .query import *
 from .web import *
-from asteriks.version import __version__
+from .version import __version__
 
 
 class WCSFailure(Exception):

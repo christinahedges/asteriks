@@ -9,7 +9,7 @@ from .query import *
 import pickle
 from astropy.time import Time
 from datetime import datetime
-from asteriks.version import __version__
+from .version import __version__
 
 
 TEMPLATE_DIR = os.path.join(PACKAGEDIR, 'data/')
