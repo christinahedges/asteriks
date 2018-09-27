@@ -126,64 +126,63 @@ def movie(dat, title='', out='out.mp4', scale='linear', facecolor='red', **kwarg
     anim.save(out, dpi=150)
 
 
-def plot_aperture_movie(obj, name, campaign, lagspacing, aperture_radius, dir='', frameskip=5):
-    with plt.style.context(('ggplot')):
-        norm = Normalize(vmin=0, vmax=np.max(lagspacing))
-        cmap = plt.get_cmap('RdYlGn_r')
-        circ_radius = (4 * u.arcsec * aperture_radius).to(u.deg).value
-        ra = obj[0][obj[0].incampaign == True].ra
-        dec = obj[0][obj[0].incampaign == True].dec
-        aspect_ratio = (np.nanmax(dec)-np.nanmin(dec))/(np.nanmax(ra)-np.nanmin(ra))
-        if aspect_ratio < 1:
-            fig, ax = plt.subplots(1, figsize=(10, 10*aspect_ratio))
-        if aspect_ratio > 1:
-            fig, ax = plt.subplots(1, figsize=(10*aspect_ratio, 10))
-        plt.subplots_adjust(wspace=1, hspace=1)
-        xlims, ylims = campaign_base_plot(ax=ax, campaigns=[campaign])
+def plot_aperture_movie(obj, name, campaign, lagspacing, aperture_radius, output='out.mp4', frameskip=5):
+    norm = Normalize(vmin=0, vmax=np.max(lagspacing))
+    cmap = plt.get_cmap('RdYlGn_r')
+    circ_radius = (4 * u.arcsec * aperture_radius).to(u.deg).value
+    ra = obj[0][obj[0].incampaign == True].ra
+    dec = obj[0][obj[0].incampaign == True].dec
+    aspect_ratio = (np.nanmax(dec)-np.nanmin(dec))/(np.nanmax(ra)-np.nanmin(ra))
+    if aspect_ratio < 1:
+        fig, ax = plt.subplots(1, figsize=(10, 10*aspect_ratio))
+    if aspect_ratio > 1:
+        fig, ax = plt.subplots(1, figsize=(10*aspect_ratio, 10))
+    plt.subplots_adjust(wspace=1, hspace=1)
+    xlims, ylims = campaign_base_plot(ax=ax, campaigns=[campaign])
 
-        plt.plot(obj[0][obj[0].incampaign == True].ra, obj[0]
-                 [obj[0].incampaign == True].dec, zorder=-1, lw=1, color='grey')
-        plt.xlim(obj[0][obj[0].incampaign == True].ra.min(),
-                 obj[0][obj[0].incampaign == True].ra.max())
-        plt.ylim(obj[0][obj[0].incampaign == True].dec.min(),
-                 obj[0][obj[0].incampaign == True].dec.max())
-        plt.gca().set_aspect(1)
-        plt.xlabel('RA', fontsize=20)
-        plt.ylabel('Declination', fontsize=20)
-        plt.title('{} Aperture Masks'.format(name))
+    plt.plot(obj[0][obj[0].incampaign == True].ra, obj[0]
+             [obj[0].incampaign == True].dec, zorder=-1, lw=1, color='grey')
+    plt.xlim(obj[0][obj[0].incampaign == True].ra.min(),
+             obj[0][obj[0].incampaign == True].ra.max())
+    plt.ylim(obj[0][obj[0].incampaign == True].dec.min(),
+             obj[0][obj[0].incampaign == True].dec.max())
+    plt.gca().set_aspect(1)
+    plt.xlabel('RA', fontsize=20)
+    plt.ylabel('Declination', fontsize=20)
+    plt.title('{} Aperture Masks'.format(name))
 
-        ra = np.zeros((len(obj), len(obj[0][obj[0].onsil == True])))
-        dec = np.zeros((len(obj), len(obj[0][obj[0].onsil == True])))
-        for idx, o in enumerate(obj):
-            ra[idx, :], dec[idx, :] = np.asarray(
-                o[o.onsil == True]['ra']), np.asarray(o[o.onsil == True]['dec'])
-        ra, dec = ra.T, dec.T
-        naper = len(ra[0])
-        patches = [plt.Circle((ra[0][j], dec[0][j]), circ_radius, fc=cmap(
-            norm(np.abs(lagspacing[j])))) for j in range(naper)]
+    ra = np.zeros((len(obj), len(obj[0][obj[0].onsil == True])))
+    dec = np.zeros((len(obj), len(obj[0][obj[0].onsil == True])))
+    for idx, o in enumerate(obj):
+        ra[idx, :], dec[idx, :] = np.asarray(
+            o[o.onsil == True]['ra']), np.asarray(o[o.onsil == True]['dec'])
+    ra, dec = ra.T, dec.T
+    naper = len(ra[0])
+    patches = [plt.Circle((ra[0][j], dec[0][j]), circ_radius, fc=cmap(
+        norm(np.abs(lagspacing[j])))) for j in range(naper)]
 
-        def init():
-            for j, patch in enumerate(patches):
-                patch.center = (ra[0][j], dec[0][j])
-            return patches
+    def init():
+        for j, patch in enumerate(patches):
+            patch.center = (ra[0][j], dec[0][j])
+        return patches
 
-        def animate(i):
-            for j, r, d, patch in zip(range(len(ra[i])), ra[i], dec[i], patches):
-                patch.center = (r, d)
-                patch.fc = cmap(norm(np.abs(lagspacing[j])))
-                ax.add_artist(patch)
-            return patches
-        log.debug('Generating animation')
-        frames = np.arange(0,
-                           len(obj[0][obj[0].onsil == True]),
-                           frameskip)
-        anim = animation.FuncAnimation(fig, animate,
-                                       init_func=init,
-                                       frames=frames,
-                                       interval=20,
-                                       blit=True)
-        log.debug('Saving animation')
-        anim.save('{}{}_aperture.mp4'.format(dir, name.replace(' ', '')), dpi=150)
+    def animate(i):
+        for j, r, d, patch in zip(range(len(ra[i])), ra[i], dec[i], patches):
+            patch.center = (r, d)
+            patch.fc = cmap(norm(np.abs(lagspacing[j])))
+            ax.add_artist(patch)
+        return patches
+    log.debug('Generating animation')
+    frames = np.arange(0,
+                       len(obj[0][obj[0].onsil == True]),
+                       frameskip)
+    anim = animation.FuncAnimation(fig, animate,
+                                   init_func=init,
+                                   frames=frames,
+                                   interval=20,
+                                   blit=True)
+    log.debug('Saving animation')
+    anim.save(output, dpi=150)
 
 
 def plot_all_asteroid_tracks(img_dir='', campaigns=None):

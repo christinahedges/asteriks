@@ -276,3 +276,91 @@ def build_tpf(r, time, name, aper):
     target.header['2CRV5P'] = 0
     tpf = KeplerTargetPixelFile(fits.HDUList([fac._make_primary_hdu(), target, _make_aperture_extension(fac, aper)]))
     return tpf
+
+def find_lagged_apertures(df, nlagged=0, aperture_radius=3, minvel_cap=0.1*u.pix/u.hour):
+    '''Finds the lag time for apertures based on a dataframe of asteroid positions.
+
+    Apertures are built to never overlap. However, if the asteroid goes below some
+    minimum velocity, they will be allowed to overlap and a flag will be added.
+    This is to ensure that asteroids with a slow turning point still have apertures.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame of asteroid times, ras, decs and on silicon flags
+    nlagged : int
+        Number of lagged apertures to find. If odd, will add one to create an
+        even number.
+    minvel_cap : float * astropy.units.pix/astropy.units.hour
+        Minimum asteroid velocity in pixels/hour.
+    Returns
+    -------
+    lag : numpy.ndarray
+
+    '''
+    log.debug('Creating lagged apertures')
+    if not hasattr(minvel_cap, 'value'):
+        minvel_cap *= u.pix/u.hour
+
+    if nlagged % 2 is 1:
+        log.warning('\n\tOdd value of nlagged set ({}). '
+                    'Setting to nearest even value. ({})'.format(nlagged, nlagged + 1))
+        nlagged += 1
+
+    ok = df.onsil == True
+    dr = (np.asarray(df[ok].ra[1:]) - np.asarray(df[ok].ra[0:-1])) * u.deg
+    dd = (np.asarray(df[ok].dec[1:]) - np.asarray(df[ok].dec[0:-1])) * u.deg
+    t = np.asarray(df[ok].jd[1:]) * u.day
+    dt = (np.asarray(df[ok].jd[1:]) - np.asarray(df[ok].jd[0:-1])) * u.day
+    dr, dd, t = dr[dt == np.median(dt)], dd[dt == np.median(dt)], t[dt == np.median(dt)]
+    dt = np.median(dt)
+    velocity = np.asarray(((dr**2 + dd**2)**0.5).to(u.arcsec).value/4)*u.pixel/dt.to(u.hour)
+    minvel = np.min(velocity)
+    log.debug('\n\tMinimum velocity of {} found'.format(np.round(minvel, 2)))
+    velocity = np.interp(np.asarray(df.jd), t.value, velocity.value)
+    df['velocity'] = velocity
+    df['CONTAMINATEDAPERTUREFLAG'] = velocity < minvel_cap.value
+    if minvel < minvel_cap:
+        log.warning('\n\tMinimum velocity ({}) less than '
+                    'minimum velocity cap ({})! Setting to '
+                    'minimum velocity cap.'.format(np.round(minvel, 2), np.round(minvel_cap, 2)))
+        minvel = minvel_cap
+    lagspacing = np.arange(-nlagged - 2, nlagged + 4, 2)
+    lagspacing = lagspacing[np.abs(lagspacing) != 2]
+    lagspacing = lagspacing[np.argsort(lagspacing**2)]
+    lag = (aperture_radius * u.pixel * lagspacing/minvel).to(u.day).value
+    return df, lag, lagspacing
+
+
+def find_overlapping_cadences(cadences, poscorr1, poscorr2, tol=5, distance_tol=0.02, mask=None):
+    '''Finds cadences where observations are almost exactly aligned in the telescope
+       despite K2 motion.
+    '''
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if mask is None:
+            mask = []
+
+        if not hasattr(cadences, '__iter__'):
+            cadences = [cadences]
+
+        hits = []
+        flags = []
+        for i in cadences:
+            dist = np.sqrt(((poscorr1 - poscorr1[i]))**2 + ((poscorr2 - poscorr2[i]))**2)
+            pos = np.where(dist < distance_tol)[0]
+            pos = (np.asarray(list(set(pos) - set([i]) - set(mask))))
+            if len(pos) <= tol:
+                pos = np.argsort(dist)
+                pos = pos[pos != i]
+                for m in mask:
+                    pos = pos[pos != m]
+                pos = pos[0:tol]
+                flags.append(0)
+            else:
+                flags.append(1)
+            hits.append(pos)
+
+        if len(hits) == 0:
+            return hits[0], flags[0]
+    return np.asarray(hits), np.asarray(flags)
