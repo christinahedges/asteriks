@@ -1,5 +1,5 @@
 import pytest
-import ..asteriks
+from .. import asteriks
 
 def test_nothing():
     pass
