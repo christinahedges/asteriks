@@ -37,10 +37,10 @@ class CampaignFailure(Exception):
 
 
 MOV_FILE = os.path.join(PACKAGEDIR, 'data', 'CAF_with_proposers.csv')
-mov = pd.read_csv(MOV_FILE)
-# print(mov)
-mov.loc[~(np.asarray([m == m for m in mov.alternate_names])), 'alternate_names'] = ''
-mov.alternate_names = [m.split('|') for m in mov.alternate_names]
+MovingBodyMetaData = pd.read_csv(MOV_FILE)
+# print(MovingBodyMetaData)
+MovingBodyMetaData.loc[~(np.asarray([m == m for m in MovingBodyMetaData.alternate_names])), 'alternate_names'] = ''
+MovingBodyMetaData.alternate_names = [m.split('|') for m in MovingBodyMetaData.alternate_names]
 
 
 def get_bibtex(ID):
@@ -94,36 +94,34 @@ def get_bibtex(ID):
             "".format(results['Date'].split(' ')[1], results['ID'], authors, results['Title'], results['Date'].split(' ')[0], results['URL'], results['Abstract']))
     return bib
 
-
-
 def find_alternate_names_using_CAF(name):
-    mask = np.zeros(len(mov), dtype=bool)
-#    if len(np.where(mov.clean_name == name)[0]) != 0:
+    mask = np.zeros(len(MovingBodyMetaData), dtype=bool)
+#    if len(np.where(MovingBodyMetaData.clean_name == name)[0]) != 0:
 #        return name
-    for idx, m, n in zip(range(len(mov)), mov.alternate_names, mov.clean_name):
+    for idx, m, n in zip(range(len(MovingBodyMetaData)), MovingBodyMetaData.alternate_names, MovingBodyMetaData.clean_name):
         mask[idx] = np.any(np.asarray([name.split('.')[-1].lower().replace(' ','') == i.lower().replace(' ','') for i in m]))
         mask[idx] |= name.split('.')[-1].lower().replace(' ','') == n.lower().replace(' ','')
-    names = [m for m in mov[mask].clean_name]
-    for m in mov[mask].alternate_names.reset_index(drop=True)[0]:
+    names = [m for m in MovingBodyMetaData[mask].clean_name]
+    for m in MovingBodyMetaData[mask].alternate_names.reset_index(drop=True)[0]:
         if len(m) > 1:
             names.append(m)
     return(names)
 
 def find_GO_proposal(name):
-    mask = np.zeros(len(mov), dtype=bool)
-    for idx, m, n in zip(range(len(mov)), mov.alternate_names, mov.clean_name):
+    mask = np.zeros(len(MovingBodyMetaData), dtype=bool)
+    for idx, m, n in zip(range(len(MovingBodyMetaData)), MovingBodyMetaData.alternate_names, MovingBodyMetaData.clean_name):
         mask[idx] = np.any(np.asarray([name.split('.')[-1].lower().replace(' ','') == i.lower().replace(' ','') for i in m]))
         mask[idx] |= name.split('.')[-1].lower().replace(' ','') == n.lower().replace(' ','')
-    IDs = np.asarray([m for m in mov[mask].IDS])
+    IDs = np.asarray([m for m in MovingBodyMetaData[mask].IDS])
     IDs = IDs[[not isinstance(i, float) for i in IDs]]
     return('|'.join(IDs))
 
 def find_PIs(name):
-    mask = np.zeros(len(mov), dtype=bool)
-    for idx, m, n in zip(range(len(mov)), mov.alternate_names, mov.clean_name):
+    mask = np.zeros(len(MovingBodyMetaData), dtype=bool)
+    for idx, m, n in zip(range(len(MovingBodyMetaData)), MovingBodyMetaData.alternate_names, MovingBodyMetaData.clean_name):
         mask[idx] = np.any(np.asarray([name.split('.')[-1].lower().replace(' ','') == i.lower().replace(' ','') for i in m]))
         mask[idx] |= name.split('.')[-1].lower().replace(' ','') == n.lower().replace(' ','')
-    PIs = [m for m in mov[mask].PROPOSERS]
+    PIs = [m for m in MovingBodyMetaData[mask].PROPOSERS]
     if len(PIs) == 0:
         return ''
     if np.asarray(isinstance(PIs[0], float)):
@@ -151,15 +149,15 @@ def find_mast_files_using_CAF(name, desired_campaign=None):
     campaign : int
         Campaign number
     '''
-    mask = np.zeros(len(mov), dtype=bool)
-    for idx, m, n in zip(range(len(mov)), mov.alternate_names, mov.clean_name):
+    mask = np.zeros(len(MovingBodyMetaData), dtype=bool)
+    for idx, m, n in zip(range(len(MovingBodyMetaData)), MovingBodyMetaData.alternate_names, MovingBodyMetaData.clean_name):
         mask[idx] = np.any(np.asarray([name.split('.')[-1].lower() == i.lower() for i in m]))
         mask[idx] |= name.split('.')[-1].lower() == n.lower()
     mast = pd.DataFrame(columns=['RA', 'Dec', 'EPIC', 'channel'])
     if np.any(mask):
-        string = np.asarray(mov.obj_name[mask])[0]
+        string = np.asarray(MovingBodyMetaData.obj_name[mask])[0]
         log.debug('{} had a custom mask in K2'.format(string))
-        string = np.asarray(mov.obj_name[mask])[0]
+        string = np.asarray(MovingBodyMetaData.obj_name[mask])[0]
         MAST_API = 'https://archive.stsci.edu/k2/data_search/search.php?'
         extra = 'outputformat=CSV&action=Search'
         columns = '&selectedColumnsCsv=sci_ra,sci_dec,ktc_k2_id,ktc_investigation_id,sci_channel,sci_campaign'
@@ -229,14 +227,14 @@ def find_moving_objects_in_campaign(campaign=2):
     obj : list
         List of names of asteroids
     '''
-    mask = np.zeros(len(mov), dtype=bool)
+    mask = np.zeros(len(MovingBodyMetaData), dtype=bool)
     campaigns = [campaign]
     if campaign > 8:
         campaigns = [campaign, campaign*10+1, campaign*10+2]
     for c in campaigns:
         mask |= np.asarray([np.any(np.asarray([(i == str(c)) for i in str(m).split('|')]))
-                            for m in mov.campaign], dtype=bool)
-    return deepcopy((mov[mask][['NAMES', 'campaign']])).reset_index(drop=True)
+                            for m in MovingBodyMetaData.campaign], dtype=bool)
+    return deepcopy((MovingBodyMetaData[mask][['NAMES', 'campaign']])).reset_index(drop=True)
 
 
 def find_all_nearby_files(RA, Dec, Channels, campaign, search_radius=(100*4.)/60.):

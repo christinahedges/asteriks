@@ -49,10 +49,7 @@ def render_template(template_filename, context):
     return TEMPLATE_ENVIRONMENT.get_template(template_filename).render(context)
 
 
-def create_asteroid_page_html(name, dir):
-    page_dir = "{0}{1}".format(OUTPUT_DIR, name.replace(' ', ''))
-    if not os.path.isdir(page_dir):
-        os.mkdir(page_dir)
+def create_asteroid_page_html(name, campaign, start_date=0, end_date=0):
 
     fname = "{0}{1}/{1}.html".format(OUTPUT_DIR, name.replace(' ', ''))
     header = '{}'.format(name)
@@ -72,26 +69,13 @@ def create_asteroid_page_html(name, dir):
         aka = ' (a.k.a. {})'.format(', '.join(other_names))
     jpllink = "https://ssd.jpl.nasa.gov/sbdb.cgi?sstr={};old=0;orb=1;cov=0;log=0;cad=0#orb".format(
         name.replace(' ', '%20'))
-    img = '{0}{1}/{1}_lc.png'.format(dir, name.replace(' ', ''))
-    mp4 = '{0}{1}/{1}.mp4'.format(dir, name.replace(' ', ''))
-    shutil.copyfile(img, '{}/{}_lc.png'.format(page_dir, name.replace(' ', '')))
-    shutil.copyfile(mp4, '{}/{}.mp4'.format(page_dir, name.replace(' ', '')))
-    fitsfile = glob('{0}{1}/*lightcurve*v{2}.fits'.format(dir, name.replace(' ', ''), __version__))[0]
-    shutil.copyfile(fitsfile, '{}/{}'.format(page_dir, fitsfile.split('/')[-1]))
-    tpffitsfile = glob('{0}{1}/*tpf*v{2}.fits'.format(dir, name.replace(' ', ''), __version__))[0]
-    shutil.copyfile(tpffitsfile, '{}/{}'.format(page_dir, tpffitsfile.split('/')[-1]))
+    fitsfile = glob('{0}{1}/*lightcurve*v{2}.fits'.format(OUTPUT_DIR, name.replace(' ', ''), __version__))[0]
+    tpffitsfile = glob('{0}{1}/*tpf*v{2}.fits'.format(OUTPUT_DIR, name.replace(' ', ''), __version__))[0]
     img = '{}_lc.png'.format(name.replace(' ', ''))
     mp4 = '{}.mp4'.format(name.replace(' ', ''))
 
     size1 = '{:.2}'.format(os.path.getsize(fitsfile)/1e6)
-    size2 = '{:.2}'.format(os.path.getsize(tpffitsfile)/1e6)
-    mast = pd.read_csv('{0}{1}/{1}_mast.csv'.format(dir, name.replace(' ', '')))
-    campaign = ', '.join(np.asarray(mast.campaign.unique(), dtype=str))
-    lcs = pickle.load(open('{0}{1}/{1}_lcs.p'.format(dir, name.replace(' ', '')), 'rb'))
-    sd = (Time(lcs[0]['t'][0], format='jd').isot)
-    start_date = datetime.strptime(sd, '%Y-%m-%dT%H:%M:%S.%f').strftime('%d %B %Y')
-    ed = (Time(lcs[0]['t'][-1], format='jd').isot)
-    end_date = datetime.strptime(ed, '%Y-%m-%dT%H:%M:%S.%f').strftime('%d %B %Y')
+    size2 = '{}'.format(int(np.round(os.path.getsize(tpffitsfile)/1e6)))
     intro_string = ("<br>{0}{4} is a moving object from K2 campaign {1}. "
                     "You can read more information about this object at the <b>JPL Small-Body Database Browser</b> <a href={5}>here</a>. "
                     " Data was taken from {2} to {3}. "
