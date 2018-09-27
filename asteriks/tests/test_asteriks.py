@@ -1,5 +1,5 @@
 import pytest
-from ..asteriks import get_meta
+import ..asteriks
 
 def test_nothing():
     pass
