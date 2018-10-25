@@ -101,6 +101,8 @@ def find_alternate_names_using_CAF(name):
     for idx, m, n in zip(range(len(MovingBodyMetaData)), MovingBodyMetaData.alternate_names, MovingBodyMetaData.clean_name):
         mask[idx] = np.any(np.asarray([name.split('.')[-1].lower().replace(' ','') == i.lower().replace(' ','') for i in m]))
         mask[idx] |= name.split('.')[-1].lower().replace(' ','') == n.lower().replace(' ','')
+    if mask.sum() == 0:
+        return [name]
     names = [m for m in MovingBodyMetaData[mask].clean_name]
     for m in MovingBodyMetaData[mask].alternate_names.reset_index(drop=True)[0]:
         if len(m) > 1:
@@ -261,8 +263,8 @@ def find_all_nearby_files(RA, Dec, Channels, campaign, search_radius=(100*4.)/60
 
     MAST_API = 'https://archive.stsci.edu/k2/data_search/search.php?'
     extra = 'outputformat=CSV&action=Search'
-    columns = '&selectedColumnsCsv=sci_ra,sci_dec,ktc_k2_id,ktc_investigation_id,sci_channel'
-    mast = pd.DataFrame(columns=['RA', 'Dec', 'EPIC', 'channel'])
+    columns = '&selectedColumnsCsv=sci_ra,sci_dec,ktc_k2_id,ktc_investigation_id,sci_channel,sci_campaign'
+    mast = pd.DataFrame(columns=['RA', 'Dec', 'EPIC', 'channel', 'campaign'])
     campaign = np.unique(campaign)[0]
     for idx in tqdm(range(len(ra_chunk)), desc='Querying MAST \t'):
         r, d, ch = ra_chunk[idx], dec_chunk[idx], channel_chunk[idx]
@@ -275,12 +277,12 @@ def find_all_nearby_files(RA, Dec, Channels, campaign, search_radius=(100*4.)/60
                                      dtype='str'))))
         chunk_df = pd.read_csv(MAST_API + query + extra + columns,
                                error_bad_lines=False,
-                               names=['RA', 'Dec', 'EPIC', 'Investigation ID', 'channel'])
+                               names=['RA', 'Dec', 'EPIC', 'Investigation ID', 'channel', 'campaign'])
         chunk_df = chunk_df.dropna(subset=['EPIC']).reset_index(drop=True)
         chunk_df = chunk_df.loc[chunk_df.RA != 'RA (J2000)']
         chunk_df = chunk_df.loc[chunk_df.RA != 'ra']
-        mast = mast.append(chunk_df.drop_duplicates(['EPIC']).reset_index(drop=True))
-    mast = mast.drop_duplicates(['EPIC']).reset_index(drop='True')
+        mast = mast.append(chunk_df.drop_duplicates(['EPIC', 'campaign']).reset_index(drop=True))
+    mast = mast.drop_duplicates(['EPIC', 'campaign']).reset_index(drop='True')
     mast['campaign'] = campaign
     return mast
 
@@ -289,7 +291,7 @@ def clean_mast_file(mast, campaign):
     '''Add URLs and cut down to the right campaign.
     '''
 
-    c = np.asarray(['{:02}'.format(campaign) in c[0:2] for c in campaign_strb])
+    c = np.asarray([np.any([campaign == c, campaign == int(c)//10]) for c in campaign_strb])
     # Only want data from the correct campaign
     ok = np.zeros(len(mast)).astype(bool)
     for c1 in campaign_stra[c]:

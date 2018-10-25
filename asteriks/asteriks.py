@@ -74,7 +74,7 @@ class object(object):
         self.dec = np.asarray(self.jpl_data[0].dec)
         self.velocity = np.asarray(self.jpl_data[0].velocity)
         log.info('Fetching MAST data for {}'.format(self.name))
-        self.file_data = query.get_mast(self.name, self.campaign)
+        self.file_data = query.get_mast(self.name, self.campaign, timetables=self.jpl_data)
         self.nfiles = len(self.file_data)
 
     def _get_meta(self, cadence='long'):
