@@ -46,7 +46,7 @@ class NotFetchedError(Exception):
     pass
 
 
-class object(object):
+class Object(object):
     '''Moving object
     '''
 
@@ -281,6 +281,7 @@ class object(object):
                 PIXEL_TOL = (self.aperture_radius.shape[0]**2 + self.aperture_radius.shape[1]**2)**0.5
             else:
                 PIXEL_TOL = (self.aperture_radius[0]**2 + self.aperture_radius[1]**2)**0.5
+
         log.debug('PIXEL_TOL set to {}'.format(PIXEL_TOL))
         can_difference = True
         xaper, yaper, aper = utils.build_aperture(self.aperture_radius)
@@ -349,7 +350,7 @@ class object(object):
 
                 # Only use the times where we are close to the aperture.
                 for coord in coords:
-                    ok |= tablecoord.separation(coord) < PIXEL_TOL*4*u.arcsec
+                    ok |= tablecoord.separation(coord) < PIXEL_TOL * 4 * u.arcsec
     #            if ok.any():
     #                import pdb;pdb.set_trace()
                 # Pair down the table.
@@ -756,6 +757,34 @@ class object(object):
                                                             self.aperture_radius))
 
         print(str)
+
+    def plotTPFTrack(self):
+        ''' Diagnostic plot of tpfs in track
+        '''
+        if 'data_array' not in self.__dir__():
+            raise NotBuiltError('The data for this object has not been built. Use the `build` method to obtain meta data (e.g. asteriks.object(NAME).build()).')
+        for c in self.file_data.campaign.unique():
+            for ch in self.file_data.channel.unique():
+                df1 = self.file_data[(self.file_data.campaign == c) & (self.file_data.channel == ch)]
+                ar = np.zeros((1100, 1100)) * np.nan
+                X, Y = np.meshgrid(np.arange(1100), np.arange(1100))
+                for idx in np.arange(len(df1)):
+                    try:
+                        with utils.silence():
+                            cadence, flux, error, y, x, poscorr1, poscorr2 = utils.open_tpf(df1.url.iloc[idx])
+                    except OSError:
+                        continue
+                    for x1, y1, f1 in zip(x.ravel(), y.ravel(), flux[0].ravel()):
+                        ar[x1, y1] = f1
+                xmin, xmax, ymin, ymax = np.asarray([np.nanmin(np.where(np.nan_to_num(ar) != 0), axis=1) - 4, np.nanmax(np.where(np.nan_to_num(ar) != 0), axis=1) + 4]).T.ravel()
+                fig = plt.figure(figsize=(int(0.1*(ymax - ymin)), int(0.1*(xmax - xmin))))
+                plt.pcolormesh(X[xmin:xmax, ymin:ymax], Y[xmin:xmax, ymin:ymax], ar[xmin:xmax, ymin:ymax], vmin=0, vmax=200)
+                plt.title("Campaign {}, Channel {}".format(c, ch))
+                plt.plot(self.jpl_data[0]['Column_{}_{}'.format(c, ch)], self.jpl_data[0]['Row_{}_{}'.format(c, ch)], zorder=10, c='r', label='Projected Track')
+                plt.ylim(xmin, xmax)
+                plt.xlim(ymin, ymax)
+                plt.legend()
+
 
     def plotTrack(self):
         '''Diagnostic plot for moving object.'''
